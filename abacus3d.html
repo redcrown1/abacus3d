@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>3D Счёты</title>
+<style>
+  :root{
+    --text:#2C2C2B; --text2:#7D7A75; --surface:rgba(255,255,255,.86);
+    --border:rgba(0,0,0,.10); --accent:#2783DE; --accent-soft:#E5F2FC;
+    --shadow:0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.07);
+  }
+  body.ui-dark{
+    --text:#FFFFFF; --text2:rgba(255,255,255,.65); --surface:rgba(32,32,32,.82);
+    --border:rgba(255,255,255,.18); --accent:#5E9FE8; --accent-soft:rgba(94,159,232,.14);
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;-webkit-tap-highlight-color:transparent}
+  body{
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--text); background:#0e0e12; touch-action:none; overscroll-behavior:none;
+  }
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:5;
+    display:flex;align-items:center;gap:12px;
+    padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 12px;
+    pointer-events:none;
+  }
+  .brand{display:flex;flex-direction:column;pointer-events:none}
+  .brand b{font-size:15px;font-weight:600;letter-spacing:.2px}
+  .brand span{font-size:13px;color:var(--text2)}
+  .readout{
+    margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;
+    background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:6px 14px;box-shadow:var(--shadow);backdrop-filter:blur(12px);pointer-events:auto;
+  }
+  .readout small{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text2)}
+  .readout b{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+  .iconbtn{
+    pointer-events:auto;width:44px;height:44px;flex:0 0 44px;border-radius:12px;
+    border:1px solid var(--border);background:var(--surface);color:var(--text);
+    box-shadow:var(--shadow);backdrop-filter:blur(12px);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .iconbtn:active{transform:scale(.96)}
+  .iconbtn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+  #panel{
+    position:fixed;z-index:6;top:calc(env(safe-area-inset-top,0px) + 68px);right:16px;width:296px;
+    max-height:calc(100dvh - env(safe-area-inset-top,0px) - 96px);overflow-y:auto;
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    box-shadow:var(--shadow);backdrop-filter:blur(16px);
+    padding:16px;display:none;
+  }
+  #panel.open{display:block}
+  .grp{padding:12px 0;border-top:1px solid var(--border)}
+  .grp:first-child{padding-top:0;border-top:0}
+  .lbl{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--text2);margin-bottom:8px}
+  .lbl b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{
+    flex:1 1 auto;min-height:36px;padding:6px 10px;border-radius:9px;cursor:pointer;
+    border:1px solid var(--border);background:transparent;color:var(--text);font-size:13px;font-family:inherit;
+  }
+  .seg button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+  input[type=range]{width:100%;accent-color:var(--accent);height:32px}
+  .row{display:flex;gap:8px}
+  .btn{
+    flex:1;min-height:44px;border-radius:10px;border:1px solid var(--border);
+    background:transparent;color:var(--text);font:inherit;font-size:14px;cursor:pointer;
+  }
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btn:active{transform:scale(.98)}
+  input[type=text]{
+    flex:1;min-width:0;min-height:44px;border-radius:10px;border:1px solid var(--border);
+    background:transparent;color:var(--text);font:inherit;padding:0 12px;font-variant-numeric:tabular-nums;
+  }
+  input[type=text]:focus,.btn:focus-visible,.seg button:focus-visible,.iconbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .switch{display:flex;align-items:center;justify-content:space-between;min-height:40px;font-size:14px}
+  .switch input{width:46px;height:28px;appearance:none;background:var(--border);border-radius:99px;position:relative;cursor:pointer;transition:background .18s}
+  .switch input:checked{background:var(--accent)}
+  .switch input::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:99px;background:#fff;transition:transform .18s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .switch input:checked::after{transform:translateX(18px)}
+
+  .hint{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    z-index:4;font-size:13px;color:var(--text2);background:var(--surface);border:1px solid var(--border);
+    border-radius:99px;padding:8px 16px;box-shadow:var(--shadow);backdrop-filter:blur(12px);
+    white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis;transition:opacity .4s;
+  }
+  @media (max-width:520px){
+    #panel{left:12px;right:12px;width:auto;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+      max-height:62dvh;border-radius:16px}
+    .brand span{display:none}
+    .readout b{font-size:19px}
+    .hint{font-size:12px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body class="ui-dark">
+<canvas id="c"></canvas>
+
+<header class="topbar">
+  <div class="brand"><b>3D Счёты</b><span>Крутите сцену · нажимайте на косточки</span></div>
+  <div class="readout"><small>Значение</small><b id="val">0</b></div>
+  <button class="iconbtn" id="soundBtn" aria-label="Звук" title="Звук">
+    <svg viewBox="0 0 24 24" id="sndIcon"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+  </button>
+  <button class="iconbtn" id="settingsBtn" aria-label="Настройки" aria-expanded="false" title="Настройки">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.09A1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<aside id="panel" aria-label="Настройки счётов">
+  <div class="grp">
+    <div class="lbl"><span>Тип счётов</span></div>
+    <div class="seg" id="modeSeg">
+      <button data-v="soroban" aria-pressed="true">Соробан 1+4</button>
+      <button data-v="suanpan" aria-pressed="false">Суаньпань 2+5</button>
+      <button data-v="schoty" aria-pressed="false">Русские счёты</button>
+    </div>
+  </div>
+  <div class="grp">
+    <div class="lbl"><span id="rodsLbl">Разрядов</span><b id="rodsVal">9</b></div>
+    <input type="range" id="rods" min="3" max="17" step="1" value="9">
+  </div>
+  <div class="grp">
+    <div class="lbl"><span>Оформление</span></div>
+    <div class="seg" id="themeSeg">
+      <button data-v="wood" aria-pressed="true">Дерево</button>
+      <button data-v="dark" aria-pressed="false">Тёмная</button>
+      <button data-v="neon" aria-pressed="false">Неон</button>
+    </div>
+  </div>
+  <div class="grp">
+    <div class="lbl"><span>Громкость</span><b id="volVal">70%</b></div>
+    <input type="range" id="vol" min="0" max="100" step="1" value="70">
+    <label class="switch"><span>Автоповорот</span><input type="checkbox" id="spin"></label>
+    <label class="switch"><span>Цифры под разрядами</span><input type="checkbox" id="digits" checked></label>
+  </div>
+  <div class="grp">
+    <div class="lbl"><span>Показать число</span></div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="numIn" inputmode="numeric" placeholder="например 2 026" aria-label="Число">
+      <button class="btn primary" id="setNum" style="flex:0 0 84px">Задать</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="rnd">Случайное</button>
+      <button class="btn" id="reset">Сброс</button>
+      <button class="btn" id="recenter">Вид</button>
+    </div>
+  </div>
+</aside>
+
+<div class="hint" id="hint">Перетаскивание — поворот · колесо/щипок — масштаб · клик по косточке — счёт</div>
+
+<script>
+(function(){
+"use strict";
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------------- themes ---------------- */
+const THEMES = {
+  wood:{ ui:'light', bg:['#FBF7F1','#E7DCCB','#CDBBA1'],
+    frame:[110,68,38], frameDark:[86,51,27], rod:[196,178,150], bar:[92,55,30],
+    bead:[168,66,42], beadOn:[214,120,58], beadAlt:[62,44,36], mark:[39,131,222], text:'#2C2C2B'},
+  dark:{ ui:'dark', bg:['#232327','#17171A','#0C0C0E'],
+    frame:[58,58,56], frameDark:[42,42,41], rod:[104,104,100], bar:[48,48,47],
+    bead:[224,223,219], beadOn:[94,159,232], beadAlt:[120,120,118], mark:[94,159,232], text:'#FFFFFF'},
+  neon:{ ui:'dark', bg:['#181336','#0C0A22','#050411'],
+    frame:[46,38,92], frameDark:[33,27,68], rod:[96,84,178], bar:[58,46,116],
+    bead:[124,243,208], beadOn:[233,115,102], beadAlt:[150,120,255], mark:[124,243,208], text:'#FFFFFF'}
+};
+
+/* ---------------- state ---------------- */
+const S = {
+  mode:'soroban', rods:9, theme:'wood', sound:true, vol:0.7,
+  spin:false, digits:true,
+  yaw:-0.52, pitch:0.30, zoom:1, panY:0
+};
+let T = THEMES.wood;
+
+/* ---------------- audio ---------------- */
+let AC=null, master=null, noise=null;
+function audio(){
+  if(!AC){
+    const C = window.AudioContext||window.webkitAudioContext; if(!C) return null;
+    AC = new C();
+    master = AC.createGain(); master.gain.value = 0.9;
+    const lp = AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=9000;
+    master.connect(lp); lp.connect(AC.destination);
+    const len = Math.floor(AC.sampleRate*0.25);
+    noise = AC.createBuffer(1,len,AC.sampleRate);
+    const d = noise.getChannelData(0);
+    for(let i=0;i<len;i++){ d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 3); }
+  }
+  if(AC.state==='suspended') AC.resume();
+  return AC;
+}
+function click(pitch, vel){
+  if(!S.sound || S.vol<=0) return;
+  const a = audio(); if(!a) return;
+  const t = a.currentTime, g0 = Math.min(1, vel) * S.vol;
+  const src = a.createBufferSource(); src.buffer = noise;
+  const bp = a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = 1500*pitch; bp.Q.value = 1.1;
+  const g = a.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.42*g0, t+0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.085);
+  src.connect(bp); bp.connect(g); g.connect(master); src.start(t); src.stop(t+0.12);
+  const o = a.createOscillator(); o.type='triangle';
+  o.frequency.setValueAtTime(430*pitch,t);
+  o.frequency.exponentialRampToValueAtTime(165*pitch, t+0.09);
+  const g2 = a.createGain();
+  g2.gain.setValueAtTime(0.22*g0,t);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t+0.13);
+  o.connect(g2); g2.connect(master); o.start(t); o.stop(t+0.15);
+}
+function swoosh(){
+  if(!S.sound || S.vol<=0) return;
+  const a = audio(); if(!a) return;
+  const t=a.currentTime;
+  const src=a.createBufferSource(); src.buffer=noise; src.playbackRate.value=0.5;
+  const bp=a.createBiquadFilter(); bp.type='bandpass'; bp.frequency.setValueAtTime(600,t);
+  bp.frequency.exponentialRampToValueAtTime(2600,t+0.22); bp.Q.value=0.8;
+  const g=a.createGain(); g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.18*S.vol,t+0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.3);
+  src.connect(bp); bp.connect(g); g.connect(master); src.start(t); src.stop(t+0.32);
+}
+
+/* ---------------- geometry ---------------- */
+function geo(){ return {v:[], f:[]}; }
+function pushBox(g,w,h,d,cx,cy,cz,shade){
+  const b=g.v.length, X=w/2,Y=h/2,Z=d/2;
+  const p=[[-X,-Y,-Z],[X,-Y,-Z],[X,Y,-Z],[-X,Y,-Z],[-X,-Y,Z],[X,-Y,Z],[X,Y,Z],[-X,Y,Z]];
+  for(const q of p) g.v.push([q[0]+cx,q[1]+cy,q[2]+cz]);
+  const f=[[0,1,2,3],[5,4,7,6],[4,0,3,7],[1,5,6,2],[3,2,6,7],[4,5,1,0]];
+  for(const q of f) g.f.push({i:q.map(k=>k+b), s:shade||1});
+}
+function pushBoxRow(g,w,h,d,cx,cy,cz,shade,segs){
+  const n=Math.max(1,segs|0), sw=w/n;
+  for(let i=0;i<n;i++) pushBox(g, sw*1.001, h, d, cx - w/2 + sw*(i+0.5), cy, cz, shade);
+}
+function pushColumn(g,w,h,d,cx,cy,cz,shade,segs){
+  const n=Math.max(1,segs|0), sh=h/n;
+  for(let i=0;i<n;i++) pushBox(g, w, sh*1.001, d, cx, cy - h/2 + sh*(i+0.5), cz, shade);
+}
+function pushBicone(g,r,h,hole,segs,cx,cy,cz,axis,shade){
+  const b=g.v.length;
+  const map = axis==='x' ? (u,v,w)=>[v+cx,u+cy,w+cz] : (u,v,w)=>[u+cx,v+cy,w+cz];
+  // u = along-axis coordinate, (v,w) = cross-section  -> for axis y: [v, u, w]
+  const put=(rad,off,ang)=>{
+    const s=Math.cos(ang)*rad, t=Math.sin(ang)*rad;
+    if(axis==='x') g.v.push([off+cx, s+cy, t+cz]);
+    else g.v.push([s+cx, off+cy, t+cz]);
+  };
+  for(let i=0;i<segs;i++){ const a=i/segs*Math.PI*2; put(r,0,a); }
+  for(let i=0;i<segs;i++){ const a=i/segs*Math.PI*2; put(hole,h,a); }
+  for(let i=0;i<segs;i++){ const a=i/segs*Math.PI*2; put(hole,-h,a); }
+  for(let i=0;i<segs;i++){
+    const j=(i+1)%segs;
+    g.f.push({i:[b+i,b+j,b+segs+j,b+segs+i], s:(shade||1)});
+    g.f.push({i:[b+2*segs+i,b+2*segs+j,b+j,b+i], s:(shade||1)});
+  }
+}
+function pushCyl(g,r,len,segs,cx,cy,cz,axis,shade){
+  const b=g.v.length;
+  const put=(off,ang)=>{
+    const s=Math.cos(ang)*r, t=Math.sin(ang)*r;
+    if(axis==='x') g.v.push([off+cx, s+cy, t+cz]);
+    else g.v.push([s+cx, off+cy, t+cz]);
+  };
+  for(let i=0;i<segs;i++){ const a=i/segs*Math.PI*2; put(len/2,a); }
+  for(let i=0;i<segs;i++){ const a=i/segs*Math.PI*2; put(-len/2,a); }
+  for(let i=0;i<segs;i++){ const j=(i+1)%segs;
+    g.f.push({i:[b+i,b+j,b+segs+j,b+segs+i], s:shade||1});
+  }
+}
+
+function pushCylSeg(g,r,len,segs,cx,cy,cz,axis,shade,pieces){
+  const n=Math.max(1,pieces|0), sl=len/n;
+  for(let i=0;i<n;i++){
+    const off = -len/2 + sl*(i+0.5);
+    if(axis==='x') pushCyl(g,r,sl*1.02,segs, cx+off, cy, cz, axis, shade);
+    else pushCyl(g,r,sl*1.02,segs, cx, cy+off, cz, axis, shade);
+  }
+}
+
+/* ---------------- scene build ---------------- */
+const BEAD_H=0.54, BEAD_R=0.44, ROD_SP=1.10;
+let objects=[], beads=[], rodsInfo=[], bounds={w:1,h:1,d:1};
+
+function obj(g,col){ return {g:g, col:col, x:0,y:0,z:0}; }
+
+function build(){
+  objects=[]; beads=[]; rodsInfo=[];
+  if(S.mode==='schoty') buildSchoty(); else buildSoroban();
+  updateValue();
+}
+
+function buildSoroban(){
+  const H = S.mode==='suanpan'?2:1, E = S.mode==='suanpan'?5:4;
+  const N = S.rods;
+  const barTop=0.10, barBot=-0.10, gap=0.36;
+  const topY = barTop + H*BEAD_H + gap;
+  const botY = barBot - (E*BEAD_H + gap);
+  const cy = (topY+botY)/2;
+  const W = N*ROD_SP + 0.62;
+  const D = 0.62;
+
+  const fr = geo();
+  const segs = Math.max(4, N*2);
+  pushBoxRow(fr, W, 0.32, D, 0, topY+0.16-cy, 0, 1, segs);
+  pushBoxRow(fr, W, 0.32, D, 0, botY-0.16-cy, 0, 1, segs);
+  pushColumn(fr, 0.32, (topY-botY)+0.64, D, -W/2+0.16, 0, 0, .92, 6);
+  pushColumn(fr, 0.32, (topY-botY)+0.64, D, W/2-0.16, 0, 0, .92, 6);
+  objects.push(obj(fr, T.frame));
+
+  const bar = geo();
+  pushBoxRow(bar, W-0.34, 0.20, D*0.74, 0, -cy, 0, 1, segs);
+  objects.push(obj(bar, T.bar));
+
+  const rodG = geo(), markG = geo();
+  for(let i=0;i<N;i++){
+    const x=(i-(N-1)/2)*ROD_SP;
+    pushCylSeg(rodG, 0.062, (topY-botY)-0.62, 10, x, -cy, 0, 'y', 1, H+E+2);
+    if((N-1-i)%3===0) pushBox(markG, 0.13,0.055,0.13, x, 0.115-cy, D*0.36, 1);
+  }
+  objects.push(obj(rodG, T.rod));
+  objects.push(obj(markG, T.mark));
+
+  for(let i=0;i<N;i++){
+    const x=(i-(N-1)/2)*ROD_SP;
+    const rod={x:x, heaven:[], earth:[], place:N-1-i};
+    for(let k=0;k<H;k++){
+      const rest = topY - 0.26 - k*BEAD_H - cy;
+      const on   = barTop + 0.27 + (H-1-k)*BEAD_H - cy;
+      beads.push(mkBead(x, rest, on, 'y', rod, 'h', k, false));
+      rod.heaven.push(beads[beads.length-1]);
+    }
+    for(let k=0;k<E;k++){
+      const rest = botY + 0.27 + (E-1-k)*BEAD_H - cy;
+      const on   = barBot - 0.27 - k*BEAD_H - cy;
+      beads.push(mkBead(x, rest, on, 'y', rod, 'e', k, false));
+      rod.earth.push(beads[beads.length-1]);
+    }
+    rodsInfo.push(rod);
+  }
+  bounds={w:W, h:(topY-botY)+0.7, d:D, baseY: botY-0.5-cy};
+}
+
+function buildSchoty(){
+  const R = Math.max(4, Math.min(12, S.rods));
+  const TH=0.34, BR=0.32, ROW=0.66;
+  const innerW = 10*TH + 1.5;
+  const W = innerW + 0.64, D=0.6;
+  const topY = (R-1)/2*ROW + 0.5, botY = -topY;
+
+  const fr=geo();
+  pushBoxRow(fr, W, 0.32, D, 0, topY+0.16, 0, 1, 16);
+  pushBoxRow(fr, W, 0.32, D, 0, botY-0.16, 0, 1, 16);
+  pushColumn(fr, 0.32, (topY-botY)+0.64, D, -W/2+0.16, 0, 0, .92, Math.max(4,R));
+  pushColumn(fr, 0.32, (topY-botY)+0.64, D, W/2-0.16, 0, 0, .92, Math.max(4,R));
+  objects.push(obj(fr, T.frame));
+
+  const wire=geo();
+  for(let r=0;r<R;r++){
+    const y = topY - 0.5 - r*ROW;
+    pushCylSeg(wire, 0.045, innerW-0.3, 12, 0, y, 0, 'x', 1, 12);
+  }
+  objects.push(obj(wire, T.rod));
+
+  const left = -innerW/2, right = innerW/2;
+  for(let r=0;r<R;r++){
+    const y = topY - 0.5 - r*ROW;
+    const row={y:y, beads:[], place:R-1-r};
+    for(let k=0;k<10;k++){
+      const rest  = right - TH/2 - (9-k)*TH;
+      const on    = left  + TH/2 + k*TH;
+      const b = mkBead(y, rest, on, 'x', row, 'r', k, (k===4||k===5));
+      b.r = BR; b.hh = TH/2*0.92;
+      beads.push(b); row.beads.push(b);
+    }
+    rodsInfo.push(row);
+  }
+  bounds={w:W, h:(topY-botY)+0.7, d:D, baseY: botY-0.5};
+}
+
+function mkBead(fixed, rest, on, axis, rod, kind, k, alt){
+  return {axis:axis, fixed:fixed, rest:rest, on:on, cur:rest, target:rest,
+          active:false, rod:rod, kind:kind, k:k, alt:!!alt, moving:false,
+          r:BEAD_R, hh:BEAD_H/2*0.94, sx:0, sy:0, sz:0, sr:0};
+}
+
+/* ---------------- camera / render ---------------- */
+let W=0,Hpx=0,DPR=1, focal=800, dist=10, VPX=0, VPY=0, VPW=1, VPH=1;
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio||1);
+  W = canvas.clientWidth; Hpx = canvas.clientHeight;
+  canvas.width = Math.round(W*DPR); canvas.height = Math.round(Hpx*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  fit();
+}
+function fit(){
+  const fov = 32*Math.PI/180;
+  focal = (Hpx/2)/Math.tan(fov/2);
+  const narrow = W < 520;
+  const panelOpen = !!(document.getElementById('panel')||{classList:{contains:()=>false}}).classList.contains('open');
+  const top = 78;
+  const bottom = (narrow && panelOpen) ? Math.min(Hpx*0.64, 520) : 74;
+  VPH = Math.max(150, Hpx - top - bottom);
+  VPW = (!narrow && panelOpen) ? Math.max(320, W - 336) : W;
+  VPX = VPW/2 + 8;
+  VPY = top + VPH/2;
+  const hw = bounds.w/2 + 0.5, hh = bounds.h/2 + 0.45;
+  const dW = focal*hw/(0.47*VPW), dH = focal*hh/(0.46*VPH);
+  dist = Math.max(dW,dH)/S.zoom + 2.2;
+}
+
+const LIGHT = (function(){ const v=[-0.42,0.62,-0.66]; const l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; })();
+let cy_=1, sy_=0, cp_=1, sp_=0;
+
+function project(x,y,z,out){
+  const x1 = x*cy_ + z*sy_;
+  const z1 = -x*sy_ + z*cy_;
+  const y2 = y*cp_ - z1*sp_;
+  const z2 = y*sp_ + z1*cp_ + dist;
+  out[0]=x1; out[1]=y2+S.panY; out[2]=z2;
+  return z2;
+}
+
+const tmp=[0,0,0];
+function shade(col, n, s){
+  const d = Math.abs(n[0]*LIGHT[0]+n[1]*LIGHT[1]+n[2]*LIGHT[2]);
+  const spec = Math.pow(d, 16)*0.42;
+  const k = (0.30 + 0.74*d) * s;
+  const r = Math.min(255, col[0]*k + 255*spec);
+  const g = Math.min(255, col[1]*k + 255*spec);
+  const b = Math.min(255, col[2]*k + 255*spec);
+  return 'rgb('+(r|0)+','+(g|0)+','+(b|0)+')';
+}
+
+let faceBuf=[];
+function render(){
+  cy_=Math.cos(S.yaw); sy_=Math.sin(S.yaw); cp_=Math.cos(S.pitch); sp_=Math.sin(S.pitch);
+  // background
+  const g = ctx.createRadialGradient(W*0.5, Hpx*0.36, 10, W*0.5, Hpx*0.5, Math.max(W,Hpx)*0.85);
+  g.addColorStop(0, T.bg[0]); g.addColorStop(0.55, T.bg[1]); g.addColorStop(1, T.bg[2]);
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,Hpx);
+
+  faceBuf.length=0;
+  const cx=VPX, cyy=VPY;
+  for(const o of objects) collect(o.g, o.col, 0,0,0, cx,cyy);
+  for(const b of beads){
+    const gg = beadGeo(b);
+    const col = b.active ? T.beadOn : (b.alt ? T.beadAlt : T.bead);
+    if(b.axis==='y') collect(gg, col, b.fixed, b.cur, 0, cx, cyy, b);
+    else collect(gg, col, b.cur, b.fixed, 0, cx, cyy, b);
+  }
+  faceBuf.sort((a,b)=>b.z-a.z);
+  for(const f of faceBuf){
+    ctx.beginPath();
+    const p=f.p;
+    ctx.moveTo(p[0],p[1]);
+    for(let i=2;i<p.length;i+=2) ctx.lineTo(p[i],p[i+1]);
+    ctx.closePath();
+    ctx.fillStyle=f.c; ctx.strokeStyle=f.c; ctx.lineWidth=0.7;
+    ctx.fill(); ctx.stroke();
+  }
+  if(S.digits) drawDigits(cx,cyy);
+}
+
+const geoCache={};
+function beadGeo(b){
+  const key = b.axis+'|'+b.r.toFixed(3)+'|'+b.hh.toFixed(3);
+  if(!geoCache[key]){
+    const gg=geo();
+    pushBicone(gg, b.r, b.hh, 0.085, 16, 0,0,0, b.axis, 1);
+    geoCache[key]=gg;
+  }
+  return geoCache[key];
+}
+
+function collect(g, col, ox,oy,oz, cx,cyy, bead){
+  const v=g.v, n=v.length;
+  const px=new Float32Array(n), py=new Float32Array(n), pz=new Float32Array(n);
+  const sxA=new Float32Array(n), syA=new Float32Array(n);
+  let minZ=1e9, sxSum=0, sySum=0;
+  for(let i=0;i<n;i++){
+    const p=v[i];
+    project(p[0]+ox, p[1]+oy, p[2]+oz, tmp);
+    px[i]=tmp[0]; py[i]=tmp[1]; pz[i]=tmp[2];
+    const z = tmp[2] < 0.2 ? 0.2 : tmp[2];
+    sxA[i]= cx + focal*tmp[0]/z; syA[i]= cyy - focal*tmp[1]/z;
+    if(tmp[2]<minZ) minZ=tmp[2];
+  }
+  if(bead){
+    project(ox,oy,oz,tmp);
+    const z=Math.max(0.2,tmp[2]);
+    bead.sx = cx + focal*tmp[0]/z; bead.sy = cyy - focal*tmp[1]/z;
+    bead.sz = tmp[2]; bead.sr = focal*bead.r/z;
+  }
+  if(minZ<0.4) return;
+  for(const f of g.f){
+    const idx=f.i, m=idx.length;
+    const a=idx[0], b2=idx[1], c=idx[2];
+    const ux=px[b2]-px[a], uy=py[b2]-py[a], uz=pz[b2]-pz[a];
+    const vx=px[c]-px[a], vy=py[c]-py[a], vz=pz[c]-pz[a];
+    let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    const ln=Math.hypot(nx,ny,nz)||1; nx/=ln; ny/=ln; nz/=ln;
+    let zs=0, zmin=1e9; const pts=new Array(m*2);
+    for(let i=0;i<m;i++){ const k=idx[i]; pts[i*2]=sxA[k]; pts[i*2+1]=syA[k]; zs+=pz[k]; if(pz[k]<zmin) zmin=pz[k]; }
+    faceBuf.push({z:0.72*zmin + 0.28*(zs/m), p:pts, c:shade(col,[nx,ny,nz], f.s)});
+  }
+}
+
+function drawDigits(cx,cyy){
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const digs = digitsOf();
+  for(let i=0;i<rodsInfo.length;i++){
+    const r=rodsInfo[i];
+    let z;
+    if(S.mode==='schoty') z = project(-bounds.w/2-0.55, r.y, 0, tmp);
+    else z = project(r.x, bounds.baseY, 0, tmp);
+    if(z<0.5) continue;
+    const sx=cx+focal*tmp[0]/z, sy=cyy-focal*tmp[1]/z;
+    const size = Math.max(9, Math.min(26, focal*0.30/z));
+    ctx.font='600 '+size.toFixed(1)+'px -apple-system,Segoe UI,Roboto,Arial,sans-serif';
+    const d = digs[i];
+    ctx.fillStyle = d>0 ? T.text : (T.ui==='dark'?'rgba(255,255,255,.38)':'rgba(44,44,43,.35)');
+    ctx.fillText(String(d), sx, sy);
+  }
+  ctx.restore();
+}
+
+/* ---------------- values ---------------- */
+function rodValue(r){
+  if(S.mode==='schoty') return r.beads.filter(b=>b.active).length;
+  let v=0;
+  for(const b of r.heaven) if(b.active) v+=5;
+  for(const b of r.earth) if(b.active) v+=1;
+  return v;
+}
+function digitsOf(){ return rodsInfo.map(rodValue); }
+function totalValue(){
+  let total=0;
+  for(const r of rodsInfo) total += rodValue(r)*Math.pow(10, r.place);
+  return total;
+}
+function fmt(n){
+  const s=Math.round(n).toString();
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g,'\u2009');
+}
+function updateValue(){ document.getElementById('val').textContent = fmt(totalValue()); }
+
+/* ---------------- interaction logic ---------------- */
+function setBead(b, active, delay){
+  if(b.active===active) return false;
+  b.active=active; b.target = active ? b.on : b.rest;
+  b.delay = delay||0; b.moving=true;
+  return true;
+}
+function toggleBead(b){
+  const rod=b.rod; let n=0;
+  if(S.mode==='schoty'){
+    const arr=rod.beads;
+    if(!b.active){ for(let k=0;k<=b.k;k++) if(setBead(arr[k],true,(b.k-k)*0.012)) n++; }
+    else { for(let k=b.k;k<10;k++) if(setBead(arr[k],false,(k-b.k)*0.012)) n++; }
+  } else if(b.kind==='h'){
+    const arr=rod.heaven;
+    if(!b.active){ for(let k=b.k;k<arr.length;k++) if(setBead(arr[k],true,(k-b.k)*0.02)) n++; }
+    else { for(let k=0;k<=b.k;k++) if(setBead(arr[k],false,(b.k-k)*0.02)) n++; }
+  } else {
+    const arr=rod.earth;
+    if(!b.active){ for(let k=0;k<=b.k;k++) if(setBead(arr[k],true,(b.k-k)*0.02)) n++; }
+    else { for(let k=b.k;k<arr.length;k++) if(setBead(arr[k],false,(k-b.k)*0.02)) n++; }
+  }
+  if(n) updateValue();
+  return n;
+}
+function pick(mx,my){
+  let best=null, bestZ=1e9;
+  for(const b of beads){
+    const d=Math.hypot(b.sx-mx, b.sy-my);
+    if(d < Math.max(16, b.sr*1.05) && b.sz<bestZ){ best=b; bestZ=b.sz; }
+  }
+  return best;
+}
+function resetAll(withSound){
+  let i=0, changed=false;
+  for(const b of beads){ if(b.active){ setBead(b,false, (i%9)*0.03 + Math.random()*0.05); changed=true; i++; } }
+  if(changed && withSound!==false) swoosh();
+  updateValue();
+}
+function setNumber(num){
+  resetAll(false);
+  let v = Math.max(0, Math.floor(num));
+  const max = Math.pow(10, rodsInfo.length)-1;
+  if(v>max) v=max;
+  for(const r of rodsInfo){
+    const d = Math.floor(v/Math.pow(10,r.place))%10;
+    const dl = (rodsInfo.length - r.place)*0.045;
+    if(S.mode==='schoty'){ for(let k=0;k<d;k++) setBead(r.beads[k], true, dl+k*0.015); }
+    else {
+      let rem=d;
+      const fives=Math.min(r.heaven.length, Math.floor(rem/5)); rem-=fives*5;
+      for(let k=0;k<fives;k++) setBead(r.heaven[r.heaven.length-1-k], true, dl+k*0.02);
+      for(let k=0;k<Math.min(r.earth.length, rem);k++) setBead(r.earth[k], true, dl+k*0.02);
+    }
+  }
+  updateValue();
+}
+
+/* ---------------- animation ---------------- */
+let last=performance.now();
+function tick(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now;
+  if(S.spin) S.yaw += dt*0.28;
+  for(const b of beads){
+    if(!b.moving) continue;
+    if(b.delay>0){ b.delay-=dt; continue; }
+    if(reduceMotion){ b.cur=b.target; b.moving=false; click(0.85+ (b.rod.place||0)*0.03, 0.5); continue; }
+    const d=b.target-b.cur;
+    b.cur += d*Math.min(1, dt*17);
+    if(Math.abs(b.target-b.cur)<0.006){
+      b.cur=b.target; b.moving=false;
+      const pl = (b.rod.place||0);
+      click(0.82 + pl*0.035 + Math.random()*0.06, 0.55 + Math.random()*0.25);
+    }
+  }
+  render();
+  requestAnimationFrame(tick);
+}
+
+/* ---------------- pointer ---------------- */
+const pointers=new Map();
+let dragMoved=0, dragStart=null, pinch0=0, zoom0=1;
+canvas.addEventListener('pointerdown', e=>{
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===1){ dragStart={x:e.clientX,y:e.clientY,t:performance.now()}; dragMoved=0; }
+  if(pointers.size===2){
+    const p=[...pointers.values()];
+    pinch0=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y); zoom0=S.zoom; dragStart=null;
+  }
+  audio();
+  hideHint();
+});
+canvas.addEventListener('pointermove', e=>{
+  const p=pointers.get(e.pointerId); if(!p) return;
+  const dx=e.clientX-p.x, dy=e.clientY-p.y;
+  p.x=e.clientX; p.y=e.clientY;
+  if(pointers.size===2){
+    const q=[...pointers.values()];
+    const d=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y);
+    if(pinch0>0){ S.zoom=Math.max(0.5, Math.min(3.2, zoom0*d/pinch0)); fit(); }
+    return;
+  }
+  dragMoved += Math.hypot(dx,dy);
+  S.yaw += dx*0.0075;
+  S.pitch = Math.max(-0.95, Math.min(0.95, S.pitch + dy*0.006));
+});
+function up(e){
+  const had=pointers.has(e.pointerId);
+  pointers.delete(e.pointerId);
+  if(!had) return;
+  if(pointers.size===0 && dragStart && dragMoved<9 && performance.now()-dragStart.t<600){
+    const r=canvas.getBoundingClientRect();
+    const b=pick(e.clientX-r.left, e.clientY-r.top);
+    if(b) toggleBead(b);
+  }
+  if(pointers.size<2) pinch0=0;
+  dragStart=null;
+}
+canvas.addEventListener('pointerup', up);
+canvas.addEventListener('pointercancel', up);
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  S.zoom = Math.max(0.5, Math.min(3.2, S.zoom * (e.deltaY>0?0.92:1.08)));
+  fit();
+},{passive:false});
+canvas.addEventListener('dblclick', ()=>{ S.zoom=1; S.yaw=-0.52; S.pitch=0.30; fit(); });
+
+window.addEventListener('keydown', e=>{
+  if(e.target.tagName==='INPUT') return;
+  if(e.key==='ArrowLeft') S.yaw-=0.12;
+  else if(e.key==='ArrowRight') S.yaw+=0.12;
+  else if(e.key==='ArrowUp') S.pitch=Math.max(-0.95,S.pitch-0.08);
+  else if(e.key==='ArrowDown') S.pitch=Math.min(0.95,S.pitch+0.08);
+  else if(e.key==='r'||e.key==='R'||e.key==='к'||e.key==='К') resetAll();
+  else return;
+  e.preventDefault();
+});
+
+/* ---------------- UI ---------------- */
+const $=id=>document.getElementById(id);
+function hideHint(){ const h=$('hint'); if(h && h.style.opacity!=='0'){ h.style.opacity='0'; setTimeout(()=>h.remove(),500);} }
+setTimeout(hideHint, 9000);
+
+$('settingsBtn').addEventListener('click', ()=>{
+  const p=$('panel'); const open=p.classList.toggle('open');
+  $('settingsBtn').setAttribute('aria-expanded', open?'true':'false');
+  fit();
+});
+$('soundBtn').addEventListener('click', ()=>{
+  S.sound=!S.sound;
+  $('sndIcon').innerHTML = S.sound
+    ? '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>'
+    : '<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6"/><path d="M22 9l-5 6"/>';
+  $('soundBtn').style.color = S.sound ? '' : 'var(--text2)';
+  if(S.sound){ audio(); click(1,0.5); }
+});
+function seg(id, key, after){
+  const el=$(id);
+  el.addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    [...el.children].forEach(c=>c.setAttribute('aria-pressed', String(c===b)));
+    S[key]=b.dataset.v; after&&after();
+  });
+}
+seg('modeSeg','mode', ()=>{
+  const r=$('rods');
+  if(S.mode==='schoty'){ r.min=4; r.max=12; if(S.rods>12) S.rods=10; if(S.rods<4) S.rods=8; $('rodsLbl').textContent='Рядов'; }
+  else { r.min=3; r.max=17; $('rodsLbl').textContent='Разрядов'; }
+  r.value=S.rods; $('rodsVal').textContent=S.rods;
+  build(); fit(); swoosh();
+});
+seg('themeSeg','theme', applyTheme);
+function applyTheme(){
+  T=THEMES[S.theme];
+  document.body.classList.toggle('ui-dark', T.ui==='dark');
+  build();
+}
+$('rods').addEventListener('input', e=>{
+  S.rods=+e.target.value; $('rodsVal').textContent=S.rods; build(); fit();
+});
+$('vol').addEventListener('input', e=>{ S.vol=+e.target.value/100; $('volVal').textContent=e.target.value+'%'; });
+$('vol').addEventListener('change', ()=>{ audio(); click(1,0.6); });
+$('spin').addEventListener('change', e=>{ S.spin=e.target.checked; });
+$('digits').addEventListener('change', e=>{ S.digits=e.target.checked; });
+$('reset').addEventListener('click', ()=>resetAll());
+$('recenter').addEventListener('click', ()=>{ S.zoom=1; S.yaw=-0.52; S.pitch=0.30; S.panY=0; fit(); });
+$('rnd').addEventListener('click', ()=>{
+  audio();
+  const maxDigits=Math.min(rodsInfo.length, 7);
+  const n=Math.floor(Math.random()*Math.pow(10,maxDigits));
+  $('numIn').value=fmt(n); setNumber(n);
+});
+function applyNum(){
+  audio();
+  const raw=$('numIn').value.replace(/[^0-9]/g,'');
+  if(raw==='') { resetAll(); return; }
+  setNumber(parseInt(raw,10));
+}
+$('setNum').addEventListener('click', applyNum);
+$('numIn').addEventListener('keydown', e=>{ if(e.key==='Enter'){ applyNum(); e.target.blur(); }});
+
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', ()=>setTimeout(resize,150));
+
+/* deep link: ?mode=&rods=&theme=&value=&panel=1 */
+(function(){
+  const q=new URLSearchParams(location.search || (window.__QA||''));
+  const m=q.get('mode'); if(m && ['soroban','suanpan','schoty'].includes(m)){
+    S.mode=m;
+    [...$('modeSeg').children].forEach(c=>c.setAttribute('aria-pressed', String(c.dataset.v===m)));
+    if(m==='schoty'){ S.rods=8; $('rods').min=4; $('rods').max=12; $('rodsLbl').textContent='\u0420\u044f\u0434\u043e\u0432'; }
+  }
+  const th=q.get('theme'); if(th && THEMES[th]){
+    S.theme=th;
+    [...$('themeSeg').children].forEach(c=>c.setAttribute('aria-pressed', String(c.dataset.v===th)));
+  }
+  const r=q.get('rods'); if(r){ S.rods=Math.max(3,Math.min(17,parseInt(r,10)||S.rods)); $('rods').value=S.rods; $('rodsVal').textContent=S.rods; }
+  if(q.get('panel')==='1'){ $('panel').classList.add('open'); $('settingsBtn').setAttribute('aria-expanded','true'); }
+  const v=q.get('value'); if(v!==null){ setTimeout(()=>{ S.sound=false; setNumber(parseInt(v,10)||0); for(const b of beads){ if(b.moving){ b.cur=b.target; b.moving=false; b.delay=0; } } S.sound=true; updateValue(); },0); }
+})();
+
+if(window.innerWidth < 520){ S.rods = 7; $('rods').value = 7; $('rodsVal').textContent = '7'; }
+
+applyTheme();
+resize();
+requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
