@@ -1,4 +1,4 @@
-import { SHORTCODES, QUICK_REACTIONS } from './theme.js';
+import { SHORTCODES, QUICK_REACTIONS, THEMES, applyTheme } from './theme.js';
 import { prevBoundary, nextBoundary } from './input.js';
 import { ImageCache, messageImages } from './images.js';
 
@@ -12,7 +12,7 @@ export const HELP = [
   ['Alt+↑ / Alt+↓', 'Previous / next channel'],
   ['Ctrl+Alt+↑ / ↓', 'Previous / next server'],
   ['Ctrl+U', 'Toggle the member list'],
-  ['F2', 'Settings: microphone, volumes, images, avatars'],
+  ['F2', 'Settings: theme, microphone, volumes, images, avatars'],
   ['Enter', 'Send message (Alt+Enter for a new line)'],
   ['↑ in empty composer', 'Select messages; then r reply, e edit, d delete, + react'],
   ['PgUp / PgDn', 'Scroll history (older messages load automatically)'],
@@ -33,6 +33,10 @@ export const SETTINGS = [
   { key: 'images', label: 'Inline image previews', type: 'toggle', help: 'When off, pictures show as file links; v still opens them.' },
   { key: 'avatars', label: 'Avatars and server icons', type: 'toggle', help: 'When off, coloured initials are shown instead.' },
   { key: 'members', label: 'Member list', type: 'toggle', help: 'The panel on the right (also Ctrl+U).' },
+  { key: 'theme', label: 'Theme', type: 'choice', help: 'Colour scheme. It changes as you flip through the list.' },
+  { key: 'animations', label: 'Animations', type: 'toggle', help: 'Startup logo, spinners, typing dots and the glow on new messages.' },
+  { key: 'toasts', label: 'Mention pop-ups', type: 'toggle', help: 'A card in the corner when you are mentioned in another channel.' },
+  { key: 'bell', label: 'Mention sound', type: 'toggle', help: 'Ring the terminal bell on mentions and direct messages.' },
 ];
 
 function acronym(name) {
@@ -75,6 +79,9 @@ export class App {
     this.viewH = 10;
     this.lastTyping = 0;
     this.rowCache = new Map();
+    this.frame = 0; // animation clock, advanced by the host while something is animating
+    this.animating = false;
+    this.splash = null;
     this.images = new ImageCache((entry) => {
       // avatars are looked up while drawing, so only inline pictures need a new layout
       if (!entry.src.avatar) store.layoutRev++;
@@ -105,11 +112,18 @@ export class App {
     return list;
   }
 
+  // Options of a choice setting, or null while they are still being detected.
+  choices(item) {
+    if (item.key === 'theme') return Object.entries(THEMES).map(([id, t]) => ({ id, label: t.name }));
+    return this.modal?.mics ? this.micChoices(this.modal) : null;
+  }
+
   setSetting(key, value) {
     const settings = this.store.settings;
     if (settings.values[key] === value) return;
     const saved = settings.set(key, value);
-    if (key === 'images') this.store.layoutRev++;
+    if (key === 'theme') applyTheme(value);
+    if (key === 'images' || key === 'theme') this.store.layoutRev++;
     if (key === 'members' && !value && this.focus === 'members') this.setFocus('input');
     this.backend.applySettings?.(key);
     if (!saved) this.store.setStatus('⚠ Could not save settings', 4000);
@@ -121,8 +135,8 @@ export class App {
     const value = this.store.settings.values[item.key];
     if (item.type === 'toggle') this.setSetting(item.key, !value);
     else if (item.type === 'slider') this.setSetting(item.key, clamp(value + dir * 10, 0, 200));
-    else if (this.modal?.mics) {
-      const choices = this.micChoices(this.modal);
+    else if (this.choices(item)) {
+      const choices = this.choices(item);
       const i = choices.findIndex((c) => c.id === value);
       this.setSetting(item.key, choices[(i + (dir || 1) + choices.length) % choices.length].id);
     }
@@ -348,6 +362,11 @@ export class App {
   // ----- input dispatch -----
 
   handle(ev) {
+    if (this.splash) {
+      if (ev.type === 'key' && ev.ctrl && (ev.name === 'c' || ev.name === 'q')) return this.onQuit();
+      if (ev.type !== 'mouse') this.splash = null;
+      return;
+    }
     if (ev.type === 'mouse') return this.mouse(ev);
     if (ev.type === 'key' && ev.ctrl && (ev.name === 'c' || ev.name === 'q')) return this.onQuit();
     if (this.modal) return this.modalInput(ev);
@@ -710,5 +729,9 @@ export class App {
     else if (hit.type === 'voiceDeaf') this.toggleVoice('deafened');
     else if (hit.type === 'voiceLeave') this.leaveVoice();
     else if (hit.type === 'settings') this.openSettings();
+    else if (hit.type === 'toast') {
+      this.store.toast = null;
+      this.jumpTo(hit.id);
+    }
   }
 }

@@ -21,6 +21,7 @@ export class Store extends EventEmitter {
     this.voice = null; // {guildId, channelId, state, muted, deafened, audio}
     this.speaking = new Set();
     this.settings = new Settings();
+    this.toast = null; // {title, body, channelId} for a mention that arrived elsewhere
   }
 
   changed() {
@@ -78,13 +79,25 @@ export class Store extends EventEmitter {
   addMessage(msg) {
     const h = this.history(msg.channelId);
     if (h.list.some((m) => m.id === msg.id)) return;
+    msg.arrived = Date.now();
     h.list.push(msg);
     if (h.list.length > 1 && cmpId(h.list.at(-2).id, msg.id) > 0) h.list.sort((a, b) => cmpId(a.id, b.id));
     this.typing.get(msg.channelId)?.delete(msg.author.id);
     if (msg.author.id !== this.me?.id && this.viewing !== msg.channelId) {
       const u = this.unread.get(msg.channelId) ?? { count: 0, mentions: 0, firstId: msg.id };
       u.count++;
-      if (msg.mentionsMe || this.channels.get(msg.channelId)?.type === 'dm') u.mentions++;
+      const ch = this.channels.get(msg.channelId);
+      if (msg.mentionsMe || ch?.type === 'dm') {
+        u.mentions++;
+        this.toast = { title: `${msg.author.name} · ${ch?.type === 'dm' ? 'Direct Message' : `#${ch?.name ?? 'unknown'}`}`, body: msg.content, channelId: msg.channelId };
+        clearTimeout(this.toastTimer);
+        this.toastTimer = setTimeout(() => {
+          this.toast = null;
+          this.changed();
+        }, 6000);
+        this.toastTimer.unref();
+        this.emit('mention', msg);
+      }
       this.unread.set(msg.channelId, u);
     }
     this.changed();

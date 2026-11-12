@@ -14,6 +14,8 @@ import { decodePng, encodePng } from '../src/png.js';
 import { fit, toCells, sizedUrl } from '../src/images.js';
 import { mixFrames, micInput, micArgs, parsePulseJson, parseSources, parseAvfoundation, parseDshow, FRAME } from '../src/voice.js';
 import { Settings, settingsPath } from '../src/settings.js';
+import { T, THEMES, applyTheme, ink } from '../src/theme.js';
+import { highlighter } from '../src/highlight.js';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -196,7 +198,10 @@ test('images: fitting, scaling and proxy urls', () => {
   assert.deepEqual(fit(16, 16, 56, 14), { cols: 16, rows: 8 });
   const px = new Uint8Array(4 * 4 * 4);
   for (let i = 0; i < 16; i++) px.set(i % 4 < 2 ? [255, 0, 0, 255] : [0, 0, 255, 0], i * 4);
-  assert.deepEqual(toCells({ width: 4, height: 4, data: px }, 2, 1, 0x102030), [[[0xff0000, 0xff0000], [0x102030, 0x102030]]]);
+  assert.deepEqual(toCells({ width: 4, height: 4, data: px }, 2, 1, 0x102030), [[['▀', 0xff0000, 0xff0000], ['▀', 0x102030, 0x102030]]]);
+  // a vertical edge inside one cell picks the matching quadrant glyph
+  const edge = Uint8Array.from([255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255]);
+  assert.deepEqual(toCells({ width: 2, height: 2, data: edge }, 1, 1, 0), [[['▌', 0xffffff, 0x000000]]]);
   assert.equal(sizedUrl('https://media.discordapp.net/attachments/1/2/a.jpg?ex=1&hm=2', 80, 40),
     'https://media.discordapp.net/attachments/1/2/a.jpg?ex=1&hm=2&format=png&width=80&height=40');
   const fields = messageFields({ attachments: [
@@ -210,12 +215,15 @@ test('ui: inline images and the image viewer', async () => {
   const { app, press } = await demo();
   let out = await press(key('down', { alt: true }));
   assert.equal(app.channelId, 'c4');
-  const picture = out.split('\n').filter((l) => l.includes('▀'.repeat(40)));
-  assert.equal(picture.length, 14);
+  const inline = [...app.images.entries.values()].find((e) => e.src.id === 'demo:dusk');
+  assert.deepEqual([inline.state, inline.cols, inline.rows], ['ready', 50, 14]);
+  assert.ok(!out.includes('Loading dusk.png'));
   out = await press(key('up'), type('v'));
   assert.equal(app.modal.type, 'image');
   assert.ok(out.includes('dusk.png'));
-  assert.ok(out.split('\n').filter((l) => l.includes('▀'.repeat(50))).length > 20);
+  const full = [...app.images.entries.values()].find((e) => e.src.id === 'demo:dusk' && e.rows > 14);
+  assert.equal(full.state, 'ready');
+  assert.ok(!out.includes('Loading…'));
   await press(key('escape'), type('k'), type('v'));
   assert.equal(app.modal, null);
   assert.equal(app.store.status, 'This message has no images');
@@ -273,7 +281,8 @@ test('ui: avatars and server icons replace the initials once loaded', async () =
   assert.ok(app.images.entries.get('demo:icon:g1|6x3|' + 0x1e1f22).cells.length === 3);
   assert.ok(!after.includes(' TD '));
   const row = after.split('\n').find((l) => l.includes('Barbara L. Today'));
-  assert.ok(row.includes('▀▀▀▀'), row);
+  assert.doesNotMatch(row, /\sB\s+Barbara L\. Today/);
+  assert.match(before, /\sB\s+Barbara L\. Today/);
   assert.equal(app.images.entries.get('demo:avatar:u9|4x2|' + 0x313338).state, 'ready');
   assert.ok(before.split('\n').every((l) => strWidth(l) <= 120) && after.split('\n').every((l) => strWidth(l) <= 120));
 
@@ -394,4 +403,86 @@ test('ui: settings screen changes and applies preferences', async () => {
   const gear = app.hits.find((h) => h.type === 'settings');
   await press({ type: 'mouse', button: 'left', x: gear.x + 1, y: gear.y });
   assert.equal(app.modal.type, 'settings');
+});
+
+test('themes: complete palettes, switching and contrast', async () => {
+  const keys = Object.keys(THEMES.dark.colors).sort();
+  for (const [id, theme] of Object.entries(THEMES)) {
+    assert.deepEqual(Object.keys(theme.colors).sort(), keys, id);
+    assert.ok(Object.values(theme.colors).every((c) => Number.isInteger(c) && c >= 0 && c <= 0xffffff), id);
+    assert.ok(theme.name);
+  }
+  assert.deepEqual([THEMES.dark.colors.chat, THEMES.dark.colors.side, THEMES.dark.colors.mentionRow], [0x313338, 0x2b2d31, 0x444037]);
+  assert.deepEqual([ink(0xf23f43), ink(0xf9e2af), ink(0x000000)], [0xffffff, 0x111214, 0xffffff]);
+
+  const { store, app, press } = await demo();
+  try {
+    let out = await press(key('f2'), ...Array(7).fill(key('down')), key('right'));
+    assert.equal(store.settings.values.theme, 'midnight');
+    assert.equal(T.rail, 0x000000);
+    assert.ok(out.includes('‹ Midnight ›'));
+    await press(key('left'), key('left'));
+    assert.equal(store.settings.values.theme, 'gruvbox');
+    app.setSetting('theme', 'light');
+    out = await press(key('escape'));
+    assert.equal(T.chat, 0xffffff);
+    assert.ok(out.includes('Message #general'));
+    applyTheme('no-such-theme');
+    assert.equal(T.chat, 0x313338);
+  } finally {
+    applyTheme('dark');
+  }
+});
+
+test('highlight: keywords, strings, comments and diffs', () => {
+  const kinds = (spans) => Object.fromEntries(spans.filter((s) => s.kind).map((s) => [s.text, s.kind]));
+  assert.deepEqual(kinds(highlighter('rust')('fn main() { let x = "hi"; // done')),
+    { fn: 'key', main: 'fn', let: 'key', '"hi"': 'str', '// done': 'com' });
+  assert.ok(!highlighter('rs')("fn f<'a, 'b>(x: &'a str)").some((s) => s.kind === 'str'));
+  assert.deepEqual(kinds(highlighter('py')('x = 1  # note // not a comment')), { 1: 'num', '# note // not a comment': 'com' });
+  assert.deepEqual(kinds(highlighter('sh')('curl https://a.io/x#frag')), {});
+
+  const js = highlighter('js');
+  assert.equal(js('a /* start').at(-1).kind, 'com');
+  assert.deepEqual(js('still */ return null'), [{ text: 'still */', kind: 'com' }, { text: ' ', kind: undefined }, { text: 'return', kind: 'key' },
+    { text: ' ', kind: undefined }, { text: 'null', kind: 'num' }]);
+  assert.deepEqual(highlighter('diff')('+added').map((s) => s.kind), ['add']);
+  assert.deepEqual(highlighter('')('let x = 1'), [{ text: 'let x = 1' }]);
+  assert.equal(highlighter('js')('one two three').map((s) => s.text).join(''), 'one two three');
+});
+
+test('ui: code blocks keep their text and get syntax colours', async () => {
+  const { frame, app } = await demo(120, 60);
+  const out = frame();
+  assert.ok(out.includes('println!("{}", (1..=100).sum::<u32>());'));
+  const cached = app.rowCache.values().find((c) => c.rows.some((r) => r.parts.some((p) => p.text === 'fn')));
+  const part = cached.rows.flatMap((r) => r.parts).find((p) => p.text === 'fn');
+  assert.deepEqual([part.fg, part.bg], [T.synKey, T.code]);
+});
+
+test('ui: startup logo and mention pop-up', async () => {
+  const { store, app, frame, press } = await demo();
+  app.splash = { since: Date.now() };
+  let out = frame();
+  assert.ok(out.includes('Discord in your terminal') && out.includes('█████') && !out.includes('Terminal Dwellers'));
+  assert.equal(app.animating, true);
+  out = await press(type('x'));
+  assert.equal(app.splash, null);
+  assert.equal(app.input.text, '');
+  assert.ok(out.includes('Terminal Dwellers'));
+
+  let rang = 0;
+  store.on('mention', () => rang++);
+  store.addMessage({ ...store.history('c4').list[0], id: '99999998', channelId: 'c5', content: 'ping <@me>', mentionsMe: true });
+  out = frame();
+  assert.ok(out.includes('linus · #help') && out.includes('ping @tester') && out.includes('Click to jump'), out);
+  assert.equal(rang, 1);
+  const hit = app.hits.find((h) => h.type === 'toast');
+  await press({ type: 'mouse', button: 'left', x: hit.x + 3, y: hit.y + 1 });
+  assert.equal(app.channelId, 'c5');
+  assert.equal(store.toast, null);
+
+  store.settings.set('toasts', false);
+  store.addMessage({ ...store.history('c4').list[0], id: '99999997', channelId: 'c4', content: 'again <@me>', mentionsMe: true });
+  assert.ok(!frame().includes('Click to jump'));
 });

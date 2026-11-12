@@ -5,6 +5,10 @@ truecolor ANSI, in plain Node. Text chat and images need **no dependencies**; on
 
 ![termcord running the demo](docs/screenshot.png)
 
+| Synthwave | Light |
+| --- | --- |
+| ![Synthwave theme](docs/theme-synthwave.png) | ![Light theme](docs/theme-light.png) |
+
 ## Run it
 
 Requires Node 22.12 or newer. Nothing to install for text chat and images.
@@ -37,6 +41,10 @@ account tokens: automating a user account is against Discord's Terms of Service 
   mention highlighting and system messages
 - Discord markdown: bold, italic, underline, strikethrough, inline code, code blocks, quotes, lists, headings,
   spoilers (revealed when the message is selected), links, user / role / channel mentions
+- Eight colour themes (Discord Dark, Midnight, Light, Dracula, Nord, Catppuccin Mocha, Synthwave, Gruvbox)
+- Syntax-highlighted code blocks, with comments, strings, numbers, keywords and calls picked out
+- Small animations: a startup logo, typing dots, spinners, a glow on new messages, a shimmer on loading pictures
+- A pop-up card (and optional terminal bell) when you are mentioned in another channel
 - Real user avatars and server icons, in the chat, the server rail, the user panel and profile popups
 - Inline image previews for attachments and embeds, drawn with half-block characters, plus a full-size viewer
 - Voice channels: join, see who is talking, mute, deafen and disconnect from a "Voice Connected" panel
@@ -46,7 +54,8 @@ account tokens: automating a user account is against Discord's Terms of Service 
 
 ## Images
 
-Pictures appear inline in the chat. Select a message (`↑` from an empty composer) and press `v` to open its images
+Pictures are drawn with quadrant block characters, which gives two colours and a 2x2 grid of points per cell.
+They appear inline in the chat. Select a message (`↑` from an empty composer) and press `v` to open its images
 at full window size; `←` / `→` step through several. termcord asks Discord's media proxy for a small PNG of each
 picture, so any format Discord can convert is shown and nothing extra needs installing. Animated images and videos
 show as a still frame or a file link.
@@ -80,6 +89,10 @@ Press `F2` or click the gear next to your name. Changes apply immediately and ar
 | Inline image previews | Off shows pictures as file links |
 | Avatars and server icons | Off shows coloured initials |
 | Member list | Same as `Ctrl+U` |
+| Theme | One of the eight colour schemes; it changes live as you flip through them |
+| Animations | Off removes the startup logo and all motion |
+| Mention pop-ups | The card shown when you are mentioned in another channel |
+| Mention sound | Rings the terminal bell on mentions and direct messages (off by default) |
 
 The speaker device itself is not selectable; sound plays through the system default output.
 
@@ -114,8 +127,10 @@ server-side read markers.
 ```sh
 npm test                                   # node --test, no install needed
 node src/index.js --snapshot 120x36        # print one frame as plain text
+node src/index.js --demo --theme synthwave # try a theme without saving it
 ```
 
 `src/screen.js` is the cell buffer and ANSI writer, `src/view.js` draws the panes, `src/app.js` holds UI state and
 input handling, and `src/backends/` contains the Discord gateway/REST client and the offline demo. `src/png.js` and
-`src/images.js` decode and scale pictures; `src/voice.js` wraps `@discordjs/voice` and the FFmpeg processes; `src/settings.js` loads and saves preferences.
+`src/images.js` decode and scale pictures; `src/voice.js` wraps `@discordjs/voice` and the FFmpeg processes; `src/settings.js` loads and saves preferences; `src/theme.js` holds the palettes and `src/highlight.js` the code
+highlighter.

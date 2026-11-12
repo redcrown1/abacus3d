@@ -78,7 +78,7 @@ export function parseBlocks(content, ctx = {}) {
   let m;
   while ((m = fence.exec(content))) {
     if (m.index > last) prose(content.slice(last, m.index));
-    blocks.push({ type: 'code', lines: m[2].replace(/\n$/, '').split('\n') });
+    blocks.push({ type: 'code', lang: m[1] ?? '', lines: m[2].replace(/\n$/, '').split('\n') });
     last = fence.lastIndex;
   }
   if (last < content.length && content.slice(last).trim()) prose(content.slice(last));

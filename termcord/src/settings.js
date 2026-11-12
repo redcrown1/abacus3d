@@ -10,6 +10,10 @@ export const DEFAULTS = {
   images: true,
   avatars: true,
   members: true,
+  theme: 'dark',
+  animations: true,
+  toasts: true,
+  bell: false,
 };
 
 export function settingsPath(env = process.env, platform = process.platform) {

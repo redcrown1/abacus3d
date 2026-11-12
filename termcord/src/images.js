@@ -1,7 +1,7 @@
 import { decodePng } from './png.js';
 import { T } from './theme.js';
 
-// Images are drawn with half blocks: one cell is one pixel wide and two pixels tall.
+// A terminal cell is twice as tall as it is wide, so an image of cols x rows cells covers cols x (rows * 2) squares.
 export function fit(w, h, maxCols, maxRows) {
   let cols = Math.max(2, Math.min(maxCols, w));
   let pixelRows = Math.max(1, Math.round((cols * h) / w));
@@ -12,15 +12,22 @@ export function fit(w, h, maxCols, maxRows) {
   return { cols, rows: Math.ceil(pixelRows / 2) };
 }
 
-// Box-samples an RGBA image down to rows of [top, bottom] colour pairs, flattened onto bg.
+// Quadrant glyphs indexed by a bit mask: 1 top-left, 2 top-right, 4 bottom-left, 8 bottom-right.
+const QUADS = [' ', '▘', '▝', '▀', '▖', '▌', '▞', '▛', '▗', '▚', '▐', '▜', '▄', '▙', '▟', '█'];
+const rgb = (c) => (Math.round(c[0]) << 16) | (Math.round(c[1]) << 8) | Math.round(c[2]);
+const mean = (list) => [0, 1, 2].map((i) => list.reduce((sum, c) => sum + c[i], 0) / list.length);
+
+// Scales an RGBA image to rows of [glyph, fg, bg] cells, flattened onto bg.
+// Each cell samples 2x2 points and picks the two-colour quadrant glyph that fits them best.
 export function toCells(img, cols, rows, bg = T.chat) {
   const { width, height, data } = img;
   const bgc = [(bg >> 16) & 255, (bg >> 8) & 255, bg & 255];
-  const pixel = (tx, ty) => {
-    const x0 = Math.min(width - 1, Math.floor((tx * width) / cols));
-    const x1 = Math.max(x0 + 1, Math.min(width, Math.floor(((tx + 1) * width) / cols)));
-    const y0 = Math.min(height - 1, Math.floor((ty * height) / (rows * 2)));
-    const y1 = Math.max(y0 + 1, Math.min(height, Math.floor(((ty + 1) * height) / (rows * 2))));
+  const gw = cols * 2, gh = rows * 2;
+  const sample = (tx, ty) => {
+    const x0 = Math.min(width - 1, Math.floor((tx * width) / gw));
+    const x1 = Math.max(x0 + 1, Math.min(width, Math.floor(((tx + 1) * width) / gw)));
+    const y0 = Math.min(height - 1, Math.floor((ty * height) / gh));
+    const y1 = Math.max(y0 + 1, Math.min(height, Math.floor(((ty + 1) * height) / gh)));
     const sum = [0, 0, 0];
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
@@ -30,10 +37,26 @@ export function toCells(img, cols, rows, bg = T.chat) {
       }
     }
     const n = (x1 - x0) * (y1 - y0);
-    return (Math.round(sum[0] / n) << 16) | (Math.round(sum[1] / n) << 8) | Math.round(sum[2] / n);
+    return [sum[0] / n, sum[1] / n, sum[2] / n];
   };
-  return Array.from({ length: rows }, (_, r) =>
-    Array.from({ length: cols }, (_, c) => [pixel(c, r * 2), pixel(c, r * 2 + 1)]));
+  const cell = (cx, cy) => {
+    const p = [sample(cx * 2, cy * 2), sample(cx * 2 + 1, cy * 2), sample(cx * 2, cy * 2 + 1), sample(cx * 2 + 1, cy * 2 + 1)];
+    let channel = 0, range = -1, lo = 0;
+    for (let c = 0; c < 3; c++) {
+      const values = p.map((q) => q[c]);
+      const min = Math.min(...values), max = Math.max(...values);
+      if (max - min > range) [channel, range, lo] = [c, max - min, min];
+    }
+    // flat cells keep the smoother top/bottom split
+    if (range < 32) return ['▀', rgb(mean([p[0], p[1]])), rgb(mean([p[2], p[3]]))];
+    const mid = lo + range / 2;
+    let mask = 0;
+    p.forEach((q, i) => {
+      if (q[channel] > mid) mask |= 1 << i;
+    });
+    return [QUADS[mask], rgb(mean(p.filter((_, i) => mask & (1 << i)))), rgb(mean(p.filter((_, i) => !(mask & (1 << i)))))];
+  };
+  return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => cell(c, r)));
 }
 
 // Asks Discord's media proxy for a PNG no larger than the given size.
@@ -91,8 +114,8 @@ export class ImageCache {
   async fetch(e) {
     let data = e.src.data;
     if (!data) {
-      // oversample so the box filter has something to average
-      const url = e.src.direct ? e.src.url : sizedUrl(e.src.url, e.cols * 2, e.rows * 4);
+      // oversample so each sampled point averages several source pixels
+      const url = e.src.direct ? e.src.url : sizedUrl(e.src.url, e.cols * 4, e.rows * 4);
       const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = Buffer.from(await res.arrayBuffer());

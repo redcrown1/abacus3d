@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import { userInfo } from 'node:os';
 import { Store } from './store.js';
 import { Settings, settingsPath } from './settings.js';
+import { applyTheme, THEMES } from './theme.js';
 import { Screen } from './screen.js';
 import { App } from './app.js';
 import { render } from './view.js';
@@ -18,6 +19,7 @@ Usage:
   termcord --token <tok>   connect with the given bot token
 
 Options:
+  --theme <name>           dark, midnight, light, dracula, nord, catppuccin, synthwave or gruvbox
   --snapshot <WxH>         print a single frame as text and exit (add --ansi for colours)
   -h, --help               show this help
 
@@ -25,7 +27,7 @@ Press F1 inside the app for keyboard shortcuts.`;
 
 const { values: opts } = parseArgs({
   options: {
-    demo: { type: 'boolean' }, token: { type: 'string' }, snapshot: { type: 'string' },
+    demo: { type: 'boolean' }, token: { type: 'string' }, snapshot: { type: 'string' }, theme: { type: 'string' },
     ansi: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
   },
 });
@@ -38,6 +40,14 @@ const token = opts.demo ? null : opts.token ?? process.env.DISCORD_TOKEN ?? proc
 const truecolor = /truecolor|24bit/i.test(process.env.COLORTERM ?? '');
 const store = new Store();
 if (!opts.snapshot) store.settings = new Settings(settingsPath());
+if (opts.theme) {
+  if (!THEMES[opts.theme]) {
+    console.error(`termcord: unknown theme "${opts.theme}". Choose one of: ${Object.keys(THEMES).join(', ')}`);
+    process.exit(1);
+  }
+  store.settings.values.theme = opts.theme;
+}
+applyTheme(store.settings.values.theme);
 const backend = token
   ? new DiscordBackend(store, token)
   : new DemoBackend(store, { simulate: !opts.snapshot, name: userInfo().username || 'you' });
@@ -124,8 +134,23 @@ stdin.on('data', (data) => {
   for (const ev of parseInput(data)) app.handle(ev);
   schedule();
 });
+store.on('mention', () => {
+  if (store.settings.values.bell) stdout.write('\x07');
+});
+if (store.settings.values.animations) app.splash = { since: Date.now() };
 // typing indicators expire on their own, so repaint while any are showing
 setInterval(() => {
   if ([...store.typing.values()].some((t) => t.size)) schedule();
 }, 1000);
+// the animation clock only runs while the last frame drew something that moves
+setInterval(() => {
+  if (app.splash && store.me && Date.now() - app.splash.since > 1600) {
+    app.splash = null;
+    schedule();
+  }
+  if (app.animating && store.settings.values.animations) {
+    app.frame++;
+    schedule();
+  }
+}, 90);
 schedule();
