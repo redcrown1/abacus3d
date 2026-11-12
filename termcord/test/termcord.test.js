@@ -9,6 +9,10 @@ import { App } from '../src/app.js';
 import { render } from '../src/view.js';
 import { DemoBackend } from '../src/backends/demo.js';
 import { normMessage, normChannel, messageFields } from '../src/backends/discord.js';
+import { readFileSync } from 'node:fs';
+import { decodePng, encodePng } from '../src/png.js';
+import { fit, toCells, sizedUrl } from '../src/images.js';
+import { mixFrames, micInput, FRAME } from '../src/voice.js';
 
 const key = (name, mods = {}) => ({ type: 'key', name, ctrl: false, alt: false, shift: false, ...mods });
 const type = (text) => ({ type: 'text', text });
@@ -28,6 +32,8 @@ async function demo(w = 120, h = 36) {
   const press = async (...evs) => {
     for (const ev of evs) app.handle(ev);
     await new Promise((r) => setImmediate(r));
+    frame(); // starts loading images that scrolled into view
+    await new Promise((r) => setTimeout(r, 20));
     return frame();
   };
   return { store, app, frame, press };
@@ -163,4 +169,83 @@ test('ui: unread tracking, older history and mouse', async () => {
   const out = await press({ type: 'mouse', button: 'left', x: hit.x + 2, y: hit.y + 1 });
   assert.equal(app.guildId, 'g3');
   assert.ok(out.includes('Pixel Lounge'));
+});
+
+test('png: round trip and a real-world file', () => {
+  const rgba = Uint8Array.from([255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 10, 20, 30, 255]);
+  const img = decodePng(encodePng(2, 2, rgba));
+  assert.deepEqual([img.width, img.height], [2, 2]);
+  assert.deepEqual([...img.data], [...rgba]);
+  assert.throws(() => decodePng(Buffer.from('GIF89a..........')), /not a PNG/);
+
+  // written by a browser, so it exercises the row filters our encoder never emits
+  const shot = decodePng(readFileSync(new URL('../docs/screenshot.png', import.meta.url)));
+  assert.deepEqual([shot.width, shot.height], [1152, 760]);
+  const o = (750 * 1152 + 1140) * 4;
+  assert.deepEqual([...shot.data.subarray(o, o + 4)], [0x2b, 0x2d, 0x31, 255]);
+});
+
+test('images: fitting, scaling and proxy urls', () => {
+  assert.deepEqual(fit(1920, 1080, 56, 14), { cols: 50, rows: 14 });
+  assert.deepEqual(fit(400, 100, 56, 14), { cols: 56, rows: 7 });
+  assert.deepEqual(fit(16, 16, 56, 14), { cols: 16, rows: 8 });
+  const px = new Uint8Array(4 * 4 * 4);
+  for (let i = 0; i < 16; i++) px.set(i % 4 < 2 ? [255, 0, 0, 255] : [0, 0, 255, 0], i * 4);
+  assert.deepEqual(toCells({ width: 4, height: 4, data: px }, 2, 1, 0x102030), [[[0xff0000, 0xff0000], [0x102030, 0x102030]]]);
+  assert.equal(sizedUrl('https://media.discordapp.net/attachments/1/2/a.jpg?ex=1&hm=2', 80, 40),
+    'https://media.discordapp.net/attachments/1/2/a.jpg?ex=1&hm=2&format=png&width=80&height=40');
+  const fields = messageFields({ attachments: [
+    { filename: 'a.jpg', size: 1, url: 'u', proxy_url: 'https://p/a.jpg', width: 10, height: 5, content_type: 'image/jpeg' },
+    { filename: 'b.mp4', size: 1, url: 'u', proxy_url: 'https://p/b.mp4', width: 10, height: 5, content_type: 'video/mp4' },
+  ] });
+  assert.deepEqual(fields.attachments.map((a) => a.image?.w), [10, undefined]);
+});
+
+test('ui: inline images and the image viewer', async () => {
+  const { app, press } = await demo();
+  let out = await press(key('down', { alt: true }));
+  assert.equal(app.channelId, 'c4');
+  const picture = out.split('\n').filter((l) => l.includes('▀'.repeat(40)));
+  assert.equal(picture.length, 14);
+  out = await press(key('up'), type('v'));
+  assert.equal(app.modal.type, 'image');
+  assert.ok(out.includes('dusk.png'));
+  assert.ok(out.split('\n').filter((l) => l.includes('▀'.repeat(50))).length > 20);
+  await press(key('escape'), type('k'), type('v'));
+  assert.equal(app.modal, null);
+  assert.equal(app.store.status, 'This message has no images');
+});
+
+test('ui: joining, muting and leaving a voice channel', async () => {
+  const { store, app, press } = await demo();
+  const idx = app.sidebarItems().findIndex((i) => i.ch?.id === 'c9');
+  app.chanCursor = idx;
+  app.focus = 'channels';
+  let out = await press(key('enter'));
+  assert.equal(store.voice.channelId, 'c9');
+  assert.ok(out.includes('Voice Connected') && out.includes('MUTED') && out.includes('EAR'));
+  assert.ok(app.sidebarItems().some((i) => i.kind === 'voiceUser' && i.userId === 'me'));
+
+  out = await press(key('m', { alt: true }), key('d', { alt: true }));
+  assert.deepEqual([store.voice.muted, store.voice.deafened], [false, true]);
+  assert.ok(out.includes(' MIC ') && out.includes('DEAF'));
+
+  const hit = app.hits.find((h) => h.type === 'voiceLeave');
+  out = await press({ type: 'mouse', button: 'left', x: hit.x + 1, y: hit.y });
+  assert.equal(store.voice, null);
+  assert.ok(!out.includes('Voice Connected'));
+});
+
+test('voice: mixing and microphone inputs', () => {
+  const a = Buffer.alloc(FRAME), b = Buffer.alloc(FRAME);
+  a.writeInt16LE(1000, 0);
+  b.writeInt16LE(250, 0);
+  a.writeInt16LE(30000, 2);
+  b.writeInt16LE(30000, 2);
+  const mixed = mixFrames([a, b]);
+  assert.deepEqual([mixed.readInt16LE(0), mixed.readInt16LE(2)], [1250, 32767]);
+  assert.equal(mixFrames([a]), a);
+  assert.deepEqual(micInput('linux', undefined), ['-f', 'pulse', '-i', 'default']);
+  assert.deepEqual(micInput('darwin', 'USB Mic'), ['-f', 'avfoundation', '-i', ':USB Mic']);
+  assert.equal(micInput('win32', undefined), null);
 });

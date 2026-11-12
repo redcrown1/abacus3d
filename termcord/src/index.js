@@ -53,6 +53,7 @@ if (opts.snapshot) {
   const [w, h] = opts.snapshot.split('x').map(Number);
   const screen = new Screen(w || 120, h || 36, { truecolor: true });
   render(app, screen);
+  await new Promise((resolve) => setTimeout(resolve, token ? 3000 : 50)); // let visible images load
   render(app, screen); // second pass picks up state settled by the first
   console.log(opts.ansi ? screen.ansiRows().join('\n') : screen.toPlain());
   process.exit(0);

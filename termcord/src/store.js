@@ -16,7 +16,9 @@ export class Store extends EventEmitter {
     this.unread = new Map(); // channelId -> {count, mentions, firstId}
     this.status = '';
     this.viewing = null; // channel currently shown and scrolled to the bottom
-    this.namesRev = 0;
+    this.layoutRev = 0; // bumped whenever cached message rows must be rebuilt
+    this.voice = null; // {guildId, channelId, state, muted, deafened, audio}
+    this.speaking = new Set();
   }
 
   changed() {

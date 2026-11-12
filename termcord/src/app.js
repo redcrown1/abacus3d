@@ -1,5 +1,6 @@
 import { SHORTCODES, QUICK_REACTIONS } from './theme.js';
 import { prevBoundary, nextBoundary } from './input.js';
+import { ImageCache, messageImages } from './images.js';
 
 const SENDABLE = new Set(['text', 'announcement', 'voice', 'dm']);
 const FOCUS_ORDER = ['guilds', 'channels', 'messages', 'input', 'members'];
@@ -14,6 +15,8 @@ export const HELP = [
   ['Enter', 'Send message (Alt+Enter for a new line)'],
   ['↑ in empty composer', 'Select messages; then r reply, e edit, d delete, + react'],
   ['PgUp / PgDn', 'Scroll history (older messages load automatically)'],
+  ['v on a selected message', 'View its images full size (←/→ for the next one)'],
+  ['Enter on a voice channel', 'Join it; Alt+M mute, Alt+D deafen, Alt+X disconnect'],
   ['@  #  :', 'Autocomplete members, channels and emoji while typing'],
   ['Esc', 'Cancel reply / edit, close popups, jump to present'],
   ['Mouse', 'Click servers, channels, messages, members; wheel scrolls'],
@@ -62,6 +65,10 @@ export class App {
     this.viewH = 10;
     this.lastTyping = 0;
     this.rowCache = new Map();
+    this.images = new ImageCache(() => {
+      store.layoutRev++;
+      store.changed();
+    });
     this.onQuit = () => {};
     this.onRedraw = () => {};
   }
@@ -267,9 +274,20 @@ export class App {
       if (!this.collapsed.delete(item.ch.id)) this.collapsed.add(item.ch.id);
     } else if (item.kind === 'channel') {
       this.auto = false;
+      if (item.ch.type === 'voice') this.run(this.backend.joinVoice(item.ch.id));
       this.openChannel(item.ch.id);
       this.setFocus('input');
     }
+  }
+
+  toggleVoice(flag) {
+    const v = this.store.voice;
+    if (!v) return this.store.setStatus('You are not in a voice channel', 3000);
+    this.run(this.backend.setVoiceFlags({ [flag]: !v[flag] }));
+  }
+
+  leaveVoice() {
+    if (this.store.voice) this.run(this.backend.leaveVoice());
   }
 
   // ----- input dispatch -----
@@ -291,6 +309,9 @@ export class App {
     else if (ctrl && name === 'l') this.onRedraw();
     else if (alt && ctrl && (name === 'up' || name === 'down')) this.stepGuild(name === 'up' ? -1 : 1);
     else if (alt && (name === 'up' || name === 'down')) this.stepChannel(name === 'up' ? -1 : 1);
+    else if (alt && name === 'm') this.toggleVoice('muted');
+    else if (alt && name === 'd') this.toggleVoice('deafened');
+    else if (alt && name === 'x') this.leaveVoice();
     else if (name === 'tab' && !(this.focus === 'input' && this.ac)) {
       const order = FOCUS_ORDER.filter((f) => f !== 'members' || this.layout?.memW);
       const i = order.indexOf(this.focus);
@@ -375,6 +396,12 @@ export class App {
         if (!own) { this.store.setStatus('You can only delete your own messages', 3000); break; }
         this.modal = { type: 'confirm', msgId: msg.id };
         break;
+      case 'v': case 'o': {
+        const items = msg ? messageImages(msg) : [];
+        if (items.length) this.modal = { type: 'image', items, index: 0 };
+        else this.store.setStatus('This message has no images', 3000);
+        break;
+      }
       case '+': case 'a':
         if (msg) this.modal = { type: 'react', msgId: msg.id, query: '' };
         break;
@@ -558,7 +585,9 @@ export class App {
     const name = ev.type === 'key' ? ev.name : null;
     if (name === 'escape') return void (this.modal = null);
     if (ev.type === 'key' && (ev.ctrl || ev.alt)) return;
-    if (m.type === 'help' || m.type === 'profile') {
+    if (m.type === 'image' && (name === 'left' || name === 'right')) {
+      m.index = (m.index + (name === 'right' ? 1 : -1) + m.items.length) % m.items.length;
+    } else if (m.type === 'help' || m.type === 'profile' || m.type === 'image') {
       this.modal = null;
     } else if (m.type === 'confirm') {
       if (name === 'enter' || ev.text === 'y') {
@@ -608,5 +637,8 @@ export class App {
     else if (hit.type === 'input') this.setFocus('input');
     else if (hit.type === 'jump') this.scroll = 0;
     else if (hit.type === 'member') this.modal = { type: 'profile', userId: hit.id };
+    else if (hit.type === 'voiceMute') this.toggleVoice('muted');
+    else if (hit.type === 'voiceDeaf') this.toggleVoice('deafened');
+    else if (hit.type === 'voiceLeave') this.leaveVoice();
   }
 }

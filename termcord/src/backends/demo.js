@@ -1,3 +1,5 @@
+import { encodePng } from '../png.js';
+
 // Offline backend with invented servers and simulated activity, used when no token is configured.
 const MIN = 60000;
 
@@ -27,6 +29,25 @@ const CHATTER = [
   'reading the docs now, will report back',
   'who broke main?',
 ];
+
+// A small dusk landscape, so the demo has a picture to show.
+function demoPicture(w = 240, h = 136) {
+  const px = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const t = y / h;
+      let c = [30 + 215 * t ** 1.6, 24 + 120 * t, 84 + 40 * (1 - t)];
+      const sun = Math.hypot(x - w * 0.68, y - h * 0.5);
+      if (sun < 18) c = [255, 238, 176];
+      else if (sun < 40) c = c.map((v, i) => v + ([255, 220, 150][i] - v) * (1 - (sun - 18) / 22) * 0.6);
+      if (y > h * 0.62 + 13 * Math.sin(x / 23) + 7 * Math.sin(x / 7.3)) c = [62, 46, 90];
+      if (y > h * 0.8 + 9 * Math.sin(x / 15 + 2) + 4 * Math.sin(x / 5.1)) c = [26, 22, 44];
+      px.set([...c, 255], (y * w + x) * 4);
+    }
+  }
+  const data = encodePng(w, h, px);
+  return { name: 'dusk.png', size: data.length, image: { id: 'demo:dusk', data, w, h, name: 'dusk.png' } };
+}
 
 export class DemoBackend {
   constructor(store, { simulate = true, name = 'you' } = {}) {
@@ -120,11 +141,12 @@ export class DemoBackend {
       m('c3', 'u1', 40, 'Nice. Remember that `sum` needs the turbofish there, see https://doc.rust-lang.org/std/iter/trait.Iterator.html', { edited: true }),
       m('c3', 'u6', 22, '> premature optimization is the root of all evil\nSomebody had to say it.'),
       m('c3', 'u5', 12, 'Build finished for **main**.', { embeds: [{ author: 'CI', title: 'Pipeline #4821 passed', color: 0x3ba55d, description: '42 tests, 0 failures, 3.1s' }] }),
-      m('c3', 'u9', 6, 'Hey <@me>, could you take a look at the layout bug in <#c5> when you have a minute?', { attachments: [{ name: 'screenshot.png', size: 482113, url: 'https://example.com/screenshot.png' }] }),
+      m('c3', 'u9', 6, 'Hey <@me>, could you take a look at the layout bug in <#c5> when you have a minute?', { attachments: [{ name: 'repro-steps.txt', size: 2113, url: 'https://example.com/repro-steps.txt' }] }),
     ]);
     put('c4', [
       m('c4', 'u2', 300, 'New prompt, who dis\n```sh\nexport PS1="\\u@\\h \\W $ "\n```'),
       m('c4', 'u9', 280, 'Minimal. I approve. ~~Mine takes 400ms to render~~'),
+      m('c4', 'u3', 45, 'Wallpaper of the week:', { attachments: [demoPicture()] }),
     ]);
     put('c5', [m('c5', 'u6', 15, 'The sidebar overlaps the chat pane below 80 columns. __Steps:__ resize, then switch channel.')]);
     put('c9', []);
@@ -189,6 +211,41 @@ export class DemoBackend {
   }
 
   async typing() {}
+
+  async joinVoice(channelId) {
+    const s = this.store;
+    const ch = s.channels.get(channelId);
+    if (!ch || ch.type !== 'voice' || s.voice?.channelId === channelId) return;
+    await this.leaveVoice();
+    s.voice = { guildId: ch.guildId, channelId, state: 'connected', muted: true, deafened: false, audio: true };
+    s.guilds.get(ch.guildId).voice.set('me', channelId);
+    s.setStatus('Demo mode: voice is simulated, there is no audio', 6000);
+    if (!this.simulate) return;
+    // pretend the others take turns talking
+    this.talk = setInterval(() => {
+      const here = [...s.guilds.get(ch.guildId).voice].filter(([id, c]) => c === channelId && id !== 'me').map(([id]) => id);
+      s.speaking.clear();
+      if (here.length && Math.random() < 0.7) s.speaking.add(here[Math.floor(Math.random() * here.length)]);
+      s.changed();
+    }, 1500);
+    this.talk.unref();
+  }
+
+  async leaveVoice() {
+    const s = this.store;
+    if (!s.voice) return;
+    clearInterval(this.talk);
+    s.guilds.get(s.voice.guildId).voice.delete('me');
+    s.voice = null;
+    s.speaking.clear();
+    s.changed();
+  }
+
+  async setVoiceFlags(flags) {
+    if (!this.store.voice) return;
+    Object.assign(this.store.voice, flags);
+    this.store.changed();
+  }
 
   peers(channelId) {
     const s = this.store;

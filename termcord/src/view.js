@@ -10,7 +10,7 @@ const ICON = { text: '#', announcement: '»', voice: '♪', forum: '≡', dm: '@
 const HINTS = {
   guilds: '↑↓ switch server · → channels',
   channels: '↑↓ move · Enter open · ← servers',
-  messages: 'r reply · e edit · d delete · + react · Esc back',
+  messages: 'r reply · e edit · d delete · + react · v image · Esc back',
   input: 'Ctrl+K jump · F1 help',
   members: '↑↓ move · Enter profile · Esc back',
 };
@@ -112,8 +112,9 @@ function drawSidebar(app, s, x, w, H) {
   if (guild) s.text(x + w - 3, 0, '⌄', { fg: T.muted });
   s.text(x, 1, '─'.repeat(w), { fg: T.line });
 
+  const voice = st.voice;
   const top = 2;
-  const viewH = H - 2 - top;
+  const viewH = H - 2 - top - (voice ? 2 : 0);
   const items = app.sidebarItems();
   let sc = app.sideScroll;
   if (app.sideFollow) {
@@ -129,8 +130,9 @@ function drawSidebar(app, s, x, w, H) {
     const cursor = app.focus === 'channels' && idx === app.chanCursor;
     if (it.kind === 'label') s.text(x + 2, y, it.text, { fg: T.chan, attr: A.BOLD });
     else if (it.kind === 'voiceUser') {
-      s.text(x + 6, y, '●', { fg: T.green });
-      s.text(x + 8, y, truncate(it.name, w - 10), { fg: T.muted });
+      const talking = st.speaking.has(it.userId);
+      s.text(x + 6, y, '●', { fg: talking ? T.green : T.divider });
+      s.text(x + 8, y, truncate(it.name, w - 10), { fg: talking ? T.white : T.muted });
     } else if (it.kind === 'category') {
       if (cursor) s.fill(x + 1, y, w - 2, 1, T.hover);
       s.text(x + 1, y, `${it.collapsed ? '›' : '⌄'} ${truncate(it.ch.name.toUpperCase(), w - 5)}`, { fg: cursor ? T.bright : T.chan, attr: A.BOLD });
@@ -144,11 +146,31 @@ function drawSidebar(app, s, x, w, H) {
       const badge = u?.mentions ? ` ${Math.min(u.mentions, 99)} ` : '';
       const status = ch.type === 'dm' ? ch.status : null;
       if (ch.type === 'dm' && status) s.text(x + 2, y, status === 'offline' ? '○' : '●', { fg: STATUS[status].color });
-      else s.text(x + 2, y, ICON[ch.type] ?? '#', { fg: active || u ? T.text : T.chan });
+      else s.text(x + 2, y, ICON[ch.type] ?? '#', { fg: voice?.channelId === ch.id ? T.green : active || u ? T.text : T.chan });
       s.text(x + 4, y, truncate(ch.name, w - 6 - badge.length), { fg: active || u ? T.white : cursor ? T.bright : T.chan, attr: u ? A.BOLD : 0 });
       if (badge) s.text(x + w - 1 - badge.length, y, badge, { fg: T.white, bg: T.red, attr: A.BOLD });
       app.hits.push({ x, y, w, h: 1, type: 'side', index: idx });
     }
+  }
+
+  if (voice) {
+    const y = H - 4;
+    const [label, col] = voice.state === 'connected' ? ['Voice Connected', T.green]
+      : voice.state === 'presence' ? ['Joined · no audio', T.yellow] : ['Connecting…', T.yellow];
+    s.fill(x, y, w, 2, T.panel);
+    s.text(x + 1, y, '●', { fg: col });
+    s.text(x + 3, y, truncate(label, w - 8), { fg: col, attr: A.BOLD });
+    s.text(x + w - 4, y, ' ✕ ', { fg: T.text, bg: T.sel });
+    app.hits.push({ x: x + w - 4, y, w: 3, h: 1, type: 'voiceLeave' });
+    let bx = x + w - 1;
+    for (const [on, off, isOff, type] of [[' EAR ', ' DEAF ', voice.deafened, 'voiceDeaf'], [' MIC ', ' MUTED ', voice.muted, 'voiceMute']]) {
+      const text = isOff ? off : on;
+      bx -= text.length;
+      s.text(bx, y + 1, text, isOff ? { fg: T.white, bg: T.red, attr: A.BOLD } : { fg: T.green, bg: T.sel });
+      app.hits.push({ x: bx, y: y + 1, w: text.length, h: 1, type });
+      bx -= 1;
+    }
+    s.text(x + 1, y + 1, truncate(`♪ ${st.channels.get(voice.channelId)?.name ?? ''}`, bx - x - 1), { fg: T.muted });
   }
 
   // user panel
@@ -275,7 +297,22 @@ function layoutMessage(app, ch, m, grouped, cw) {
       }
     }
   }
+  const picture = (src) => {
+    const e = app.images.get(src, Math.min(cw, 56), 14);
+    for (let i = 0; i < e.rows; i++) {
+      if (e.cells) {
+        row([{ x: X, px: e.cells[i] }]);
+        continue;
+      }
+      const label = i !== e.rows >> 1 ? '' : e.state === 'error' ? `▣ ${src.name} (no preview)` : `Loading ${src.name}…`;
+      row([{ x: X, text: center(truncate(label, e.cols - 2), e.cols), fg: T.muted, bg: T.code }]).need = e;
+    }
+  };
   for (const a of m.attachments) {
+    if (a.image) {
+      picture(a.image);
+      continue;
+    }
     const nameText = truncate(a.name, cw - 14);
     row([
       { x: X, text: '▣', fg: T.muted }, { x: X + 2, text: nameText, fg: T.link, attr: A.UNDER },
@@ -297,6 +334,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
     for (const line of (e.description ?? '').split('\n')) if (line.trim()) put(parseInline(line, ctx));
     for (const f of e.fields ?? []) put([{ text: `${f.name}: `, b: true }, ...parseInline(String(f.value).replace(/\n/g, ' '), ctx)]);
     if (e.footer) put([{ text: e.footer, muted: true }]);
+    if (e.image) picture(e.image);
   }
   if (m.reactions.length) {
     let parts = [];
@@ -340,7 +378,7 @@ function buildRows(app, ch, w) {
     if (isNew) rows.push(divider(w, 'NEW', T.red, T.red));
     const grouped = !!prev && !dayChange && !isNew && prev.author.id === m.author.id && m.ts - prev.ts < 7 * 60000 &&
       !m.reply && m.type === 'default' && prev.type === 'default';
-    const key = `${m.rev ?? 0}|${w}|${grouped}|${st.namesRev}`;
+    const key = `${m.rev ?? 0}|${w}|${grouped}|${st.layoutRev}`;
     let c = app.rowCache.get(m.id);
     if (!c || c.key !== key) app.rowCache.set(m.id, (c = { key, rows: layoutMessage(app, ch, m, grouped, cw) }));
     for (const r of c.rows) rows.push(r);
@@ -348,6 +386,10 @@ function buildRows(app, ch, w) {
   }
   rows.push({ parts: [] });
   return rows;
+}
+
+function drawPixels(s, x, y, cells, maxW) {
+  for (let i = 0; i < cells.length && i < maxW; i++) s.text(x + i, y, '▀', { fg: cells[i][0], bg: cells[i][1] });
 }
 
 function typingText(app, ch) {
@@ -439,7 +481,12 @@ function drawChat(app, s, x, y, w, h) {
     if (selected || r.mention) s.fill(x, sy, w, 1, selected ? T.msgSel : T.mentionRow);
     if (r.mention) s.text(x, sy, '▎', { fg: T.mentionBar });
     else if (selected) s.text(x, sy, '▎', { fg: T.blurple });
+    if (r.need) app.images.load(r.need);
     for (const p of r.parts) {
+      if (p.px) {
+        drawPixels(s, x + p.x, sy, p.px, w - p.x - 1);
+        continue;
+      }
       const hidden = p.spoiler && !selected;
       s.text(x + p.x, sy, p.text, { fg: hidden ? T.spoiler : p.fg, bg: hidden ? T.spoiler : p.bg, attr: p.attr }, w - p.x - 1);
     }
@@ -558,6 +605,15 @@ function drawModal(app, s) {
     s.fill(b.x + 2, b.y + 5, b.w - 4, 1, T.rail);
     const qw = s.text(b.x + 3, b.y + 5, m.query || 'or type an emoji / :shortcode: and press Enter', { fg: m.query ? T.text : T.faint }, b.w - 6);
     app.cursor = { x: b.x + 3 + (m.query ? qw : 0), y: b.y + 5 };
+  } else if (m.type === 'image') {
+    const src = m.items[m.index];
+    const e = app.images.get(src, s.w - 8, s.h - 6);
+    app.images.load(e);
+    const count = m.items.length > 1 ? `  ${m.index + 1}/${m.items.length}  ←/→` : '';
+    const b = openBox(app, s, Math.max(e.cols + 4, 30), e.rows + 4, `${src.name}${count}`);
+    const ix = b.x + ((b.w - e.cols) >> 1);
+    if (e.cells) e.cells.forEach((cells, i) => drawPixels(s, ix, b.y + 3 + i, cells, b.w - 2));
+    else s.text(b.x + 2, b.y + 3, e.state === 'error' ? 'This image could not be loaded.' : 'Loading…', { fg: T.muted });
   } else if (m.type === 'profile') {
     const guild = st.guilds.get(app.guildId);
     const mb = guild?.members.get(m.userId);

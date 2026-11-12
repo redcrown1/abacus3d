@@ -1,3 +1,5 @@
+import { loadVoice, VoiceSession } from '../voice.js';
+
 // Live Discord backend: REST v10 plus the Gateway, authenticated as a bot application.
 const API = 'https://discord.com/api/v10';
 const TYPES = { 0: 'text', 1: 'dm', 2: 'voice', 3: 'dm', 4: 'category', 5: 'announcement', 13: 'voice', 15: 'forum', 16: 'forum' };
@@ -30,6 +32,9 @@ export function normMember(raw, user = raw.user, prev) {
   };
 }
 
+const normImage = (raw, name) =>
+  (raw?.proxy_url && raw.width && raw.height ? { id: raw.proxy_url, url: raw.proxy_url, w: raw.width, h: raw.height, name } : null);
+
 const normReaction = (r) => ({
   key: r.emoji.id ? `${r.emoji.name}:${r.emoji.id}` : r.emoji.name,
   label: r.emoji.id ? `:${r.emoji.name}:` : r.emoji.name,
@@ -43,7 +48,10 @@ export function messageFields(raw, meId) {
   if (raw.edited_timestamp !== undefined) out.edited = !!raw.edited_timestamp;
   if (raw.attachments || raw.sticker_items) {
     out.attachments = [
-      ...(raw.attachments ?? []).map((a) => ({ name: a.filename, size: a.size, url: a.url })),
+      ...(raw.attachments ?? []).map((a) => ({
+        name: a.filename, size: a.size, url: a.url,
+        image: /^image\//.test(a.content_type ?? '') ? normImage(a, a.filename) : null,
+      })),
       ...(raw.sticker_items ?? []).map((st) => ({ name: `Sticker: ${st.name}`, size: 0 })),
     ];
   }
@@ -51,6 +59,7 @@ export function messageFields(raw, meId) {
     out.embeds = raw.embeds.map((e) => ({
       title: e.title, description: e.description, url: e.url, color: e.color,
       author: e.author?.name, footer: e.footer?.text, fields: (e.fields ?? []).map((f) => ({ name: f.name, value: f.value })),
+      image: normImage(e.image ?? e.thumbnail, e.title ?? 'image'),
     }));
   }
   if (raw.reactions) out.reactions = raw.reactions.map(normReaction);
@@ -80,6 +89,8 @@ export class DiscordBackend {
     this.seq = null;
     this.session = null;
     this.retries = 0;
+    this.voiceHooks = new Map(); // guildId -> callbacks of the voice library
+    this.session = null;
   }
 
   async rest(method, path, body, attempt = 0) {
@@ -185,7 +196,7 @@ export class DiscordBackend {
       if (!guild || !user) return;
       const prev = guild.members.get(user.id);
       const next = normMember(raw, user, prev);
-      if (prev?.name !== next.name) s.namesRev++;
+      if (prev?.name !== next.name) s.layoutRev++;
       guild.members.set(user.id, next);
       s.users.set(user.id, userName(user));
     };
@@ -227,7 +238,7 @@ export class DiscordBackend {
           presences(d.presences, g.members.values());
           this.sendOp(8, { guild_id: d.id, query: '', limit: 0, presences: true });
         }
-        s.namesRev++;
+        s.layoutRev++;
         break;
       }
       case 'GUILD_UPDATE': s.guild(d.id).name = d.name; break;
@@ -257,7 +268,15 @@ export class DiscordBackend {
         if (!guild) break;
         if (d.channel_id) guild.voice.set(d.user_id, d.channel_id);
         else guild.voice.delete(d.user_id);
+        if (d.user_id === s.me?.id) {
+          this.voiceHooks.get(d.guild_id)?.onVoiceStateUpdate(d);
+          const v = s.voice;
+          if (v?.guildId === d.guild_id && d.channel_id) v.channelId = d.channel_id;
+          // a null channel right after joining is the echo of our own earlier leave
+          else if (v?.guildId === d.guild_id && Date.now() - v.since > 3000) this.leaveVoice();
+        }
         break;
+      case 'VOICE_SERVER_UPDATE': this.voiceHooks.get(d.guild_id)?.onVoiceServerUpdate(d); return;
       case 'CHANNEL_CREATE': case 'CHANNEL_UPDATE': {
         const ch = normChannel(d);
         if (ch) s.channels.set(ch.id, ch);
@@ -334,7 +353,93 @@ export class DiscordBackend {
     return this.rest('POST', `/channels/${channelId}/typing`);
   }
 
+  // ----- voice -----
+
+  voiceState(guildId, channelId, v) {
+    this.sendOp(4, { guild_id: guildId, channel_id: channelId, self_mute: !!v?.muted, self_deaf: !!v?.deafened });
+  }
+
+  async joinVoice(channelId) {
+    const s = this.store;
+    const ch = s.channels.get(channelId);
+    if (!ch || ch.type !== 'voice') return;
+    const prev = s.voice;
+    if (prev?.guildId === ch.guildId) {
+      if (prev.channelId === channelId) return;
+      prev.channelId = channelId;
+      s.speaking.clear();
+      if (this.session) this.session.move(channelId);
+      else this.voiceState(ch.guildId, channelId, prev);
+      return s.changed();
+    }
+    await this.leaveVoice();
+    const v = (s.voice = { guildId: ch.guildId, channelId, state: 'connecting', muted: true, deafened: false, audio: false, since: Date.now() });
+    s.changed();
+    this.voiceLib ??= await loadVoice();
+    if (s.voice !== v) return;
+    if (!this.voiceLib) {
+      this.voiceState(ch.guildId, channelId, v);
+      v.state = 'presence';
+      return s.setStatus('Joined without audio: run "npm install" in the termcord folder', 12000);
+    }
+    v.audio = true;
+    this.session = new VoiceSession(this.voiceLib, {
+      guildId: ch.guildId,
+      channelId,
+      adapterCreator: (hooks) => {
+        this.voiceHooks.set(ch.guildId, hooks);
+        return {
+          sendPayload: (payload) => {
+            if (this.ws?.readyState !== WebSocket.OPEN) return false;
+            this.ws.send(JSON.stringify(payload));
+            return true;
+          },
+          destroy: () => this.voiceHooks.delete(ch.guildId),
+        };
+      },
+      onState: (status) => {
+        if (s.voice !== v) return;
+        v.state = status === 'ready' ? 'connected' : 'connecting';
+        s.changed();
+      },
+      onSpeaking: (userId, on) => {
+        if (on) s.speaking.add(userId);
+        else s.speaking.delete(userId);
+        s.changed();
+      },
+      onMicFailed: () => {
+        v.muted = true;
+        s.changed();
+      },
+      onError: (message) => s.setStatus(`⚠ Voice: ${message}`, 10000),
+    });
+  }
+
+  async leaveVoice() {
+    const s = this.store;
+    const v = s.voice;
+    if (!v) return;
+    s.voice = null;
+    s.speaking.clear();
+    if (this.session) this.session.destroy();
+    else this.voiceState(v.guildId, null);
+    this.session = null;
+    s.changed();
+  }
+
+  async setVoiceFlags(flags) {
+    const s = this.store;
+    const v = s.voice;
+    if (!v) return;
+    if (flags.muted === false && !v.audio) return s.setStatus('Audio is not installed: run "npm install" in the termcord folder', 8000);
+    Object.assign(v, flags);
+    if (this.session) this.session.setFlags(v.muted, v.deafened);
+    else this.voiceState(v.guildId, v.channelId, v);
+    s.changed();
+  }
+
   close() {
+    this.leaveVoice();
     clearInterval(this.heartbeat);
     const ws = this.ws;
     this.ws = null;
