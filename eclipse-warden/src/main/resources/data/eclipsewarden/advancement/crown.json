@@ -1,0 +1,30 @@
+{
+  "display": {
+    "icon": {
+      "id": "eclipsewarden:warden_crown"
+    },
+    "title": {
+      "translate": "advancements.eclipsewarden.crown.title"
+    },
+    "description": {
+      "translate": "advancements.eclipsewarden.crown.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "crown": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "eclipsewarden:warden_crown"
+          }
+        ]
+      }
+    }
+  },
+  "parent": "eclipsewarden:slayer"
+}

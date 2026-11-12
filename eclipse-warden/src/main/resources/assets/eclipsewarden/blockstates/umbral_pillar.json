@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "axis=y": {
+      "model": "eclipsewarden:block/umbral_pillar"
+    },
+    "axis=z": {
+      "model": "eclipsewarden:block/umbral_pillar_horizontal",
+      "x": 90
+    },
+    "axis=x": {
+      "model": "eclipsewarden:block/umbral_pillar_horizontal",
+      "x": 90,
+      "y": 90
+    }
+  }
+}

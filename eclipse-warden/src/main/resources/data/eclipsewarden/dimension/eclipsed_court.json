@@ -1,0 +1,18 @@
+{
+  "type": "eclipsewarden:eclipsed_court",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "eclipsewarden:eclipsed_court",
+      "lakes": false,
+      "features": false,
+      "layers": [
+        {
+          "block": "minecraft:air",
+          "height": 1
+        }
+      ],
+      "structure_overrides": []
+    }
+  }
+}

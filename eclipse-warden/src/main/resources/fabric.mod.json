@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "eclipsewarden",
+	"version": "${version}",
+	"name": "Eclipse Warden",
+	"description": "A ritual-summoned boss fight in the Eclipsed Court, with its own arena, weapons and rewards.",
+	"authors": ["redcrown1"],
+	"license": "MIT",
+	"icon": "assets/eclipsewarden/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["com.eclipsewarden.EclipseWarden"],
+		"client": ["com.eclipsewarden.client.EclipseWardenClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.0",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
