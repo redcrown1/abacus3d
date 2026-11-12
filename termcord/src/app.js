@@ -65,8 +65,9 @@ export class App {
     this.viewH = 10;
     this.lastTyping = 0;
     this.rowCache = new Map();
-    this.images = new ImageCache(() => {
-      store.layoutRev++;
+    this.images = new ImageCache((entry) => {
+      // avatars are looked up while drawing, so only inline pictures need a new layout
+      if (!entry.src.avatar) store.layoutRev++;
       store.changed();
     });
     this.onQuit = () => {};
@@ -118,7 +119,7 @@ export class App {
 
   railItems() {
     const items = [{ id: '@me', label: 'DM', name: 'Direct Messages' }];
-    for (const g of this.store.guilds.values()) items.push({ id: g.id, label: acronym(g.name), name: g.name });
+    for (const g of this.store.guilds.values()) items.push({ id: g.id, label: acronym(g.name), name: g.name, icon: g.icon });
     return items;
   }
 

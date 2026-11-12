@@ -8,7 +8,7 @@ import { Store } from '../src/store.js';
 import { App } from '../src/app.js';
 import { render } from '../src/view.js';
 import { DemoBackend } from '../src/backends/demo.js';
-import { normMessage, normChannel, messageFields } from '../src/backends/discord.js';
+import { normMessage, normChannel, messageFields, avatarOf, normMember } from '../src/backends/discord.js';
 import { readFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../src/png.js';
 import { fit, toCells, sizedUrl } from '../src/images.js';
@@ -105,7 +105,7 @@ test('discord: payload normalisation', () => {
 test('ui: renders all four panes', async () => {
   const { frame } = await demo();
   const out = frame();
-  for (const text of ['TD', 'Terminal Dwellers', 'TEXT CHANNELS', '# general', 'Message #general', 'ADMIN — 1', 'Ada Lovelace', 'Pipeline #4821 passed', '@tester']) {
+  for (const text of ['DM', 'Terminal Dwellers', 'TEXT CHANNELS', '# general', 'Message #general', 'ADMIN — 1', 'Ada Lovelace', 'Pipeline #4821 passed', '@tester']) {
     assert.ok(out.includes(text), `missing ${text}\n${out}`);
   }
   assert.ok(out.split('\n').every((l) => strWidth(l) <= 120));
@@ -248,4 +248,34 @@ test('voice: mixing and microphone inputs', () => {
   assert.deepEqual(micInput('linux', undefined), ['-f', 'pulse', '-i', 'default']);
   assert.deepEqual(micInput('darwin', 'USB Mic'), ['-f', 'avfoundation', '-i', ':USB Mic']);
   assert.equal(micInput('win32', undefined), null);
+});
+
+test('discord: avatar and icon urls', () => {
+  const cdn = 'https://cdn.discordapp.com';
+  assert.equal(avatarOf({ id: '80351110224678912', username: 'n', avatar: 'abc' }).url, `${cdn}/avatars/80351110224678912/abc.png?size=64`);
+  assert.equal(avatarOf({ id: '5', username: 'n', avatar: 'abc' }, { avatar: 'def' }, '9').url, `${cdn}/guilds/9/users/5/avatars/def.png?size=64`);
+  assert.equal(avatarOf({ id: '80351110224678912', username: 'n', avatar: null, discriminator: '0' }).url, `${cdn}/embed/avatars/5.png?size=64`);
+  assert.equal(avatarOf({ id: '5', username: 'n', avatar: null, discriminator: '1337' }).url, `${cdn}/embed/avatars/2.png?size=64`);
+  assert.equal(normMember({ nick: 'N', roles: [] }, { id: '5', username: 'n', avatar: 'abc' }, undefined, '9').avatar.direct, true);
+});
+
+test('ui: avatars and server icons replace the initials once loaded', async () => {
+  const { store, app, frame, press } = await demo();
+  const before = frame();
+  await press();
+  const after = frame();
+  // the acronym box for the first server gives way to its pixel icon
+  assert.ok(app.images.entries.get('demo:icon:g1|6x3|' + 0x1e1f22).cells.length === 3);
+  assert.ok(!after.includes(' TD '));
+  const row = after.split('\n').find((l) => l.includes('Barbara L. Today'));
+  assert.ok(row.includes('▀▀▀▀'), row);
+  assert.equal(app.images.entries.get('demo:avatar:u9|4x2|' + 0x313338).state, 'ready');
+  assert.ok(before.split('\n').every((l) => strWidth(l) <= 120) && after.split('\n').every((l) => strWidth(l) <= 120));
+
+  const hit = app.hits.find((h) => h.type === 'member' && h.id === 'u1');
+  const out = await press({ type: 'mouse', button: 'left', x: hit.x + 3, y: hit.y });
+  assert.equal(app.modal.type, 'profile');
+  assert.ok(out.includes('Ada Lovelace') && out.includes('Admin'));
+  assert.equal(app.images.entries.get('demo:avatar:u1|10x5|' + 0x111214).state, 'ready');
+  assert.equal(store.me.avatar.id, 'demo:avatar:me');
 });

@@ -15,6 +15,20 @@ const FATAL_CLOSE = { 4004: 'Authentication failed: invalid token', 4010: 'Inval
 
 const userName = (u) => u.global_name ?? u.username;
 
+const CDN = 'https://cdn.discordapp.com';
+const asset = (path, name) => ({ id: path, url: `${CDN}/${path}.png?size=64`, w: 64, h: 64, name, direct: true, avatar: true });
+
+// Server-specific avatar if set, else the user's, else Discord's default for that account.
+export function avatarOf(user, member, guildId) {
+  if (member?.avatar && guildId) return asset(`guilds/${guildId}/users/${user.id}/avatars/${member.avatar}`, user.username);
+  if (user.avatar) return asset(`avatars/${user.id}/${user.avatar}`, user.username);
+  const legacy = user.discriminator && user.discriminator !== '0' && user.discriminator !== '0000';
+  const index = legacy ? Number(user.discriminator) % 5 : Number((BigInt(user.id) >> 22n) % 6n);
+  return asset(`embed/avatars/${index}`, user.username);
+}
+
+const guildIcon = (d) => (d.icon ? asset(`icons/${d.id}/${d.icon}`, d.name) : null);
+
 export function normChannel(raw, guildId = raw.guild_id) {
   const type = TYPES[raw.type];
   if (!type) return null;
@@ -25,9 +39,10 @@ export function normChannel(raw, guildId = raw.guild_id) {
   return { id: raw.id, guildId, type, name: raw.name, parentId: raw.parent_id ?? null, position: raw.position ?? 0, topic: raw.topic ?? '' };
 }
 
-export function normMember(raw, user = raw.user, prev) {
+export function normMember(raw, user = raw.user, prev, guildId) {
   return {
     id: user.id, name: raw.nick ?? userName(user), username: user.username, bot: !!user.bot,
+    avatar: avatarOf(user, raw, guildId),
     roles: raw.roles ?? prev?.roles ?? [], status: prev?.status,
   };
 }
@@ -71,7 +86,10 @@ export function normMessage(raw, meId) {
   const ref = raw.referenced_message;
   return {
     id: raw.id, channelId: raw.channel_id,
-    author: { id: raw.author.id, name: raw.member?.nick ?? userName(raw.author), bot: !!raw.author.bot },
+    author: {
+      id: raw.author.id, name: raw.member?.nick ?? userName(raw.author), bot: !!raw.author.bot,
+      avatar: avatarOf(raw.author, raw.member, raw.guild_id),
+    },
     ts: Date.parse(raw.timestamp), type: MSG_TYPES[raw.type] ?? 'default',
     content: '', edited: false, attachments: [], embeds: [], reactions: [], mentionsMe: false, rev: 0,
     reply: ref ? { id: ref.id, authorId: ref.author.id, author: userName(ref.author), content: ref.content }
@@ -195,8 +213,8 @@ export class DiscordBackend {
     const member = (raw, user = raw.user) => {
       if (!guild || !user) return;
       const prev = guild.members.get(user.id);
-      const next = normMember(raw, user, prev);
-      if (prev?.name !== next.name) s.layoutRev++;
+      const next = normMember(raw, user, prev, guild.id);
+      if (prev?.name !== next.name || prev?.avatar?.id !== next.avatar.id) s.layoutRev++;
       guild.members.set(user.id, next);
       s.users.set(user.id, userName(user));
     };
@@ -208,7 +226,7 @@ export class DiscordBackend {
     };
     switch (t) {
       case 'READY':
-        s.me = { id: d.user.id, name: userName(d.user), username: d.user.username };
+        s.me = { id: d.user.id, name: userName(d.user), username: d.user.username, avatar: avatarOf(d.user) };
         s.users.set(d.user.id, s.me.name);
         this.session = d.session_id;
         this.resumeUrl = d.resume_gateway_url;
@@ -223,6 +241,7 @@ export class DiscordBackend {
       case 'GUILD_CREATE': {
         const g = s.guild(d.id);
         g.name = d.name;
+        g.icon = guildIcon(d);
         g.systemChannelId = d.system_channel_id;
         g.roles = new Map(d.roles.map((r) => [r.id, { id: r.id, name: r.name, color: r.color, hoist: r.hoist, position: r.position }]));
         for (const c of d.channels ?? []) {
@@ -230,7 +249,7 @@ export class DiscordBackend {
           if (ch) s.channels.set(ch.id, ch);
         }
         for (const m of d.members ?? []) {
-          g.members.set(m.user.id, normMember(m, m.user, g.members.get(m.user.id)));
+          g.members.set(m.user.id, normMember(m, m.user, g.members.get(m.user.id), d.id));
           s.users.set(m.user.id, userName(m.user));
         }
         g.voice = new Map((d.voice_states ?? []).filter((v) => v.channel_id).map((v) => [v.user_id, v.channel_id]));
@@ -241,7 +260,7 @@ export class DiscordBackend {
         s.layoutRev++;
         break;
       }
-      case 'GUILD_UPDATE': s.guild(d.id).name = d.name; break;
+      case 'GUILD_UPDATE': Object.assign(s.guild(d.id), { name: d.name, icon: guildIcon(d) }); break;
       case 'GUILD_DELETE': s.removeGuild(d.id); break;
       case 'GUILD_MEMBERS_CHUNK': {
         const added = d.members.map((m) => {

@@ -1,4 +1,5 @@
 import { encodePng } from '../png.js';
+import { userColor } from '../theme.js';
 
 // Offline backend with invented servers and simulated activity, used when no token is configured.
 const MIN = 60000;
@@ -29,6 +30,47 @@ const CHATTER = [
   'reading the docs now, will report back',
   'who broke main?',
 ];
+
+// Head-and-shoulders silhouette on the user's colour.
+const avatars = new Map();
+function demoAvatar(id, size = 32) {
+  if (avatars.has(id)) return avatars.get(id);
+  const c = userColor(id);
+  const base = [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+  const light = base.map((v) => Math.round(v + (255 - v) * 0.8));
+  const px = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const head = Math.hypot(x - size / 2, y - size * 0.38) < size * 0.2;
+      const body = ((x - size / 2) / (size * 0.36)) ** 2 + ((y - size) / (size * 0.36)) ** 2 < 1;
+      const shade = 1 - 0.35 * (y / size);
+      px.set([...(head || body ? light : base.map((v) => v * shade)), 255], (y * size + x) * 4);
+    }
+  }
+  const src = { id: `demo:avatar:${id}`, data: encodePng(size, size, px), w: size, h: size, name: id, direct: true, avatar: true };
+  avatars.set(id, src);
+  return src;
+}
+
+// Server icons are tiny pixel art, scaled up so they survive being scaled back down.
+function pixelIcon(id, rows, palette, scale = 8) {
+  const n = rows.length * scale;
+  const px = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const c = palette[rows[Math.floor(y / scale)][Math.floor(x / scale)]];
+      px.set([(c >> 16) & 255, (c >> 8) & 255, c & 255, 255], (y * n + x) * 4);
+    }
+  }
+  return { id: `demo:icon:${id}`, data: encodePng(n, n, px), w: n, h: n, name: id, direct: true, avatar: true };
+}
+
+const ICONS = {
+  g1: [['......', '.#....', '..#...', '.#....', '...##.', '......'], { '.': 0x0d3b2a, '#': 0x57f287 }],
+  g2: [['o.oo.o', '.oooo.', 'oo..oo', 'oo..oo', '.oooo.', 'o.oo.o'], { '.': 0x3a1f0b, o: 0xe67e22 }],
+  g3: [['rrggbb', 'rrggbb', 'yyppcc', 'yyppcc', 'bbrrgg', 'bbrrgg'],
+    { r: 0xed4245, g: 0x57f287, b: 0x5865f2, y: 0xfee75c, p: 0xeb459e, c: 0x1abc9c }],
+};
 
 // A small dusk landscape, so the demo has a picture to show.
 function demoPicture(w = 240, h = 136) {
@@ -63,9 +105,9 @@ export class DemoBackend {
   }
 
   user(id) {
-    if (id === 'me') return { id: 'me', name: this.store.me.name, bot: false };
+    if (id === 'me') return { id: 'me', name: this.store.me.name, bot: false, avatar: demoAvatar('me') };
     const u = USERS.find((x) => x[0] === id);
-    return { id, name: u[2], bot: !!u[5] };
+    return { id, name: u[2], bot: !!u[5], avatar: demoAvatar(id) };
   }
 
   msg(channelId, authorId, minutesAgo, content, extra = {}) {
@@ -78,20 +120,22 @@ export class DemoBackend {
 
   async connect() {
     const s = this.store;
-    s.me = { id: 'me', name: this.name, username: this.name };
+    s.me = { id: 'me', name: this.name, username: this.name, avatar: demoAvatar('me') };
     s.users.set('me', this.name);
     for (const [id, , name] of USERS) s.users.set(id, name);
     const memberOf = (ids) => new Map([
-      ['me', { id: 'me', name: this.name, username: this.name, bot: false, status: 'online', roles: [] }],
+      ['me', { id: 'me', name: this.name, username: this.name, bot: false, status: 'online', roles: [], avatar: demoAvatar('me') }],
       ...USERS.filter((u) => ids.includes(u[0])).map(([id, username, name, status, roles, bot]) =>
-        [id, { id, username, name, status, roles, bot: !!bot }]),
+        [id, { id, username, name, status, roles, bot: !!bot, avatar: demoAvatar(id) }]),
     ]);
     const roles = new Map([
       ['admin', { id: 'admin', name: 'Admin', color: 0xed4245, hoist: true, position: 4 }],
       ['mod', { id: 'mod', name: 'Moderator', color: 0x3ba55d, hoist: true, position: 3 }],
       ['bots', { id: 'bots', name: 'Bots', color: 0x5865f2, hoist: true, position: 2 }],
     ]);
-    const guild = (id, name, members, voice = []) => s.guilds.set(id, { id, name, roles, members: memberOf(members), voice: new Map(voice) });
+    const guild = (id, name, members, voice = []) => s.guilds.set(id, {
+      id, name, roles, members: memberOf(members), voice: new Map(voice), icon: pixelIcon(id, ...ICONS[id]),
+    });
     const chan = (guildId, id, name, type, parentId, position, topic) => s.channels.set(id, { id, guildId, name, type, parentId, position, topic });
 
     guild('g1', 'Terminal Dwellers', USERS.map((u) => u[0]), [['u4', 'c9'], ['u9', 'c9']]);

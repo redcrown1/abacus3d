@@ -49,7 +49,8 @@ export function messageImages(m) {
   return [...m.attachments.map((a) => a.image), ...m.embeds.map((e) => e.image)].filter(Boolean);
 }
 
-// Lazily downloads and scales pictures. A source is { id, w, h, name } with url or data.
+// Lazily downloads and scales pictures. A source is { id, w, h, name } with url or data;
+// direct sources (avatars, icons) are fetched as given instead of through the resizing proxy.
 export class ImageCache {
   constructor(onLoad) {
     this.onLoad = onLoad;
@@ -58,11 +59,11 @@ export class ImageCache {
     this.active = 0;
   }
 
-  get(src, maxCols, maxRows) {
+  get(src, maxCols, maxRows, bg = T.chat) {
     const { cols, rows } = fit(src.w, src.h, maxCols, maxRows);
-    const key = `${src.id}|${cols}x${rows}`;
+    const key = `${src.id}|${cols}x${rows}|${bg}`;
     let e = this.entries.get(key);
-    if (!e) this.entries.set(key, (e = { src, cols, rows, state: 'idle', cells: null }));
+    if (!e) this.entries.set(key, (e = { src, cols, rows, bg, state: 'idle', cells: null }));
     return e;
   }
 
@@ -81,7 +82,7 @@ export class ImageCache {
         .then((cells) => Object.assign(e, { cells, state: 'ready' }), () => (e.state = 'error'))
         .finally(() => {
           this.active--;
-          this.onLoad();
+          this.onLoad(e);
           this.pump();
         });
     }
@@ -91,10 +92,11 @@ export class ImageCache {
     let data = e.src.data;
     if (!data) {
       // oversample so the box filter has something to average
-      const res = await fetch(sizedUrl(e.src.url, e.cols * 2, e.rows * 4), { signal: AbortSignal.timeout(20000) });
+      const url = e.src.direct ? e.src.url : sizedUrl(e.src.url, e.cols * 2, e.rows * 4);
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = Buffer.from(await res.arrayBuffer());
     }
-    return toCells(decodePng(data), e.cols, e.rows);
+    return toCells(decodePng(data), e.cols, e.rows, e.bg);
   }
 }

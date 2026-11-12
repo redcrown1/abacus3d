@@ -77,8 +77,8 @@ function drawRail(app, s, H) {
   s.fill(0, 0, RAIL_W, H, T.rail);
   const items = app.railItems();
   const sel = items.findIndex((i) => i.id === app.guildId);
-  const yOf = (i) => (i === 0 ? 0 : 4 + (i - 1) * 3);
-  let sc = clamp(app.railScroll, 0, Math.max(0, yOf(items.length) - H));
+  const yOf = (i) => (i === 0 ? 0 : 4 + (i - 1) * 4);
+  let sc = clamp(app.railScroll, 0, Math.max(0, yOf(items.length) - 1 - H));
   if (sel >= 0) sc = clamp(sc, yOf(sel) + 3 - H, yOf(sel));
   app.railScroll = sc = Math.max(0, sc);
   if (items.length > 1) s.text(3, 3 - sc, '──', { fg: T.divider });
@@ -86,22 +86,37 @@ function drawRail(app, s, H) {
     const y = yOf(i) - sc;
     if (y + 2 < 0 || y >= H) return;
     const active = i === sel;
-    const col = active ? T.blurple : T.chat;
     const focused = active && app.focus === 'guilds';
-    s.text(2, y, '▄▄▄▄', { fg: col });
-    s.text(2, y + 1, center(it.label, 4), {
-      fg: active ? T.white : it.id === '@me' ? T.text : userColor(it.id), bg: col, attr: A.BOLD | (focused ? A.UNDER : 0),
-    });
-    s.text(2, y + 2, '▀▀▀▀', { fg: col });
+    const icon = it.icon && app.images.get(it.icon, 6, 3, T.rail);
+    if (icon) app.images.load(icon);
+    if (icon?.cells) icon.cells.forEach((cells, r) => drawPixels(s, 1, y + r, cells, 6));
+    else {
+      const col = active ? T.blurple : T.chat;
+      s.fill(1, y, 6, 3, col);
+      s.text(1, y + 1, center(it.label, 6), {
+        fg: active ? T.white : it.id === '@me' ? T.text : userColor(it.id), bg: col, attr: A.BOLD | (focused ? A.UNDER : 0),
+      });
+    }
     const badge = app.store.badge(it.id);
     if (active) {
-      s.text(0, y, '▖', { fg: T.white });
-      s.text(0, y + 1, '▌', { fg: T.white });
-      s.text(0, y + 2, '▘', { fg: T.white });
+      const fg = focused ? T.blurple : T.white;
+      s.text(0, y, '▌', { fg });
+      s.text(0, y + 1, '▌', { fg });
+      s.text(0, y + 2, '▌', { fg });
     } else if (badge.unread) s.text(0, y + 1, '•', { fg: T.white });
     if (badge.mentions) s.text(5, y + 2, String(Math.min(badge.mentions, 99)), { fg: T.white, bg: T.red, attr: A.BOLD });
     app.hits.push({ x: 0, y, w: RAIL_W, h: 3, type: 'guild', id: it.id });
   });
+}
+
+// Draws a loaded avatar, or the coloured initial while it is unavailable.
+function drawAvatar(app, s, x, y, cols, rows, src, name, id, bg) {
+  const e = src && app.images.get(src, cols, rows, bg);
+  if (e) app.images.load(e);
+  if (e?.cells) return e.cells.forEach((cells, i) => drawPixels(s, x, y + i, cells, cols));
+  const col = userColor(id);
+  s.fill(x, y, cols, rows, col);
+  s.text(x, y + ((rows - 1) >> 1), center(initial(name), cols), { fg: T.modal, bg: col, attr: A.BOLD });
 }
 
 function drawSidebar(app, s, x, w, H) {
@@ -177,13 +192,11 @@ function drawSidebar(app, s, x, w, H) {
   const me = st.me;
   s.fill(x, H - 2, w, 2, T.panel);
   if (!me) return;
-  const col = userColor(me.id);
-  s.text(x + 1, H - 2, ` ${initial(me.name)} `, { fg: T.modal, bg: col, attr: A.BOLD });
-  s.text(x + 1, H - 1, '▀▀▀', { fg: col });
-  s.text(x + 5, H - 2, truncate(me.name, w - 7), { fg: T.bright, attr: A.BOLD });
-  s.text(x + 5, H - 1, '●', { fg: T.green });
-  s.text(x + 7, H - 1, 'Online', { fg: T.muted });
-  s.text(x + w - 8, H - 1, 'F1 help', { fg: T.faint });
+  drawAvatar(app, s, x + 1, H - 2, 4, 2, me.avatar, me.name, me.id, T.panel);
+  s.text(x + 6, H - 2, truncate(me.name, w - 8), { fg: T.bright, attr: A.BOLD });
+  s.text(x + 6, H - 1, '●', { fg: T.green });
+  s.text(x + 8, H - 1, 'Online', { fg: T.muted });
+  if (w >= 24) s.text(x + w - 8, H - 1, 'F1 help', { fg: T.faint });
 }
 
 function drawHeader(app, s, x, w) {
@@ -222,7 +235,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
   const st = app.store;
   const guild = st.guilds.get(ch.guildId);
   const ctx = app.mdCtx(ch.guildId);
-  const X = 5;
+  const X = 6;
   const rows = [];
   const row = (parts) => {
     const r = { msgId: m.id, mention: m.mentionsMe, parts };
@@ -238,6 +251,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
   const member = guild?.members.get(m.author.id);
   const name = member?.name ?? m.author.name;
   const avatar = userColor(m.author.id);
+  const avatarSrc = member?.avatar ?? m.author.avatar;
 
   if (m.type !== 'default') {
     rows.push({ parts: [] });
@@ -263,7 +277,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
   }
   if (!grouped) {
     const parts = [
-      { x: 1, text: ` ${initial(name)} `, fg: T.modal, bg: avatar, attr: A.BOLD },
+      { x: 1, av: avatarSrc, half: 0, text: center(initial(name), 4), fg: T.modal, bg: avatar, attr: A.BOLD },
       { x: X, text: name, fg: (guild && member && st.memberColor(guild, member)) || T.bright, attr: A.BOLD },
     ];
     let x = X + strWidth(name) + 1;
@@ -353,14 +367,14 @@ function layoutMessage(app, ch, m, grouped, cw) {
     row(parts);
   }
   if (rows.length === bodyStart) row([{ x: X, text: '(no text content)', fg: T.faint, attr: A.ITALIC }]);
-  if (!grouped) rows[bodyStart].parts.unshift({ x: 1, text: '▀▀▀', fg: avatar });
+  if (!grouped) rows[bodyStart].parts.unshift({ x: 1, av: avatarSrc, half: 1, text: '    ', bg: avatar });
   return rows;
 }
 
 function buildRows(app, ch, w) {
   const st = app.store;
   const h = st.history(ch.id);
-  const cw = Math.max(10, w - 7);
+  const cw = Math.max(10, w - 8);
   const rows = [];
   if (h.loaded && !h.hasMore) {
     const dm = ch.type === 'dm';
@@ -486,6 +500,14 @@ function drawChat(app, s, x, y, w, h) {
       if (p.px) {
         drawPixels(s, x + p.x, sy, p.px, w - p.x - 1);
         continue;
+      }
+      if (p.av) {
+        const e = app.images.get(p.av, 4, 2);
+        app.images.load(e);
+        if (e.cells) {
+          drawPixels(s, x + p.x, sy, e.cells[p.half], 4);
+          continue;
+        }
       }
       const hidden = p.spoiler && !selected;
       s.text(x + p.x, sy, p.text, { fg: hidden ? T.spoiler : p.fg, bg: hidden ? T.spoiler : p.bg, attr: p.attr }, w - p.x - 1);
@@ -619,26 +641,23 @@ function drawModal(app, s) {
     const mb = guild?.members.get(m.userId);
     if (!mb) return void (app.modal = null);
     const roles = mb.roles.map((id) => guild.roles.get(id)).filter(Boolean).sort((a, b) => b.position - a.position);
-    const b = openBox(app, s, 44, 11 + (roles.length ? 2 : 0));
-    const col = userColor(mb.id);
-    s.fill(b.x, b.y, b.w, 2, col);
-    s.text(b.x + 2, b.y + 1, '▄▄▄▄▄', { fg: T.modal });
-    s.text(b.x + 2, b.y + 2, `  ${initial(mb.name)}  `, { fg: T.modal, bg: col, attr: A.BOLD });
-    s.text(b.x + 2, b.y + 3, '▀▀▀▀▀', { fg: col });
-    const nw = s.text(b.x + 2, b.y + 5, truncate(mb.name, b.w - 12), { fg: T.bright, attr: A.BOLD });
-    if (mb.bot) s.text(b.x + 3 + nw, b.y + 5, ' APP ', { fg: T.white, bg: T.blurple, attr: A.BOLD });
-    s.text(b.x + 2, b.y + 6, truncate(mb.username, b.w - 4), { fg: T.muted });
+    const b = openBox(app, s, 44, 13 + (roles.length ? 2 : 0));
+    s.fill(b.x, b.y, b.w, 2, userColor(mb.id));
+    drawAvatar(app, s, b.x + 2, b.y + 1, 10, 5, mb.avatar, mb.name, mb.id, T.modal);
+    const nw = s.text(b.x + 2, b.y + 7, truncate(mb.name, b.w - 12), { fg: T.bright, attr: A.BOLD });
+    if (mb.bot) s.text(b.x + 3 + nw, b.y + 7, ' APP ', { fg: T.white, bg: T.blurple, attr: A.BOLD });
+    s.text(b.x + 2, b.y + 8, truncate(mb.username, b.w - 4), { fg: T.muted });
     const status = STATUS[mb.status];
     if (status) {
-      s.text(b.x + 2, b.y + 8, mb.status === 'offline' ? '○' : '●', { fg: status.color });
-      s.text(b.x + 4, b.y + 8, status.label, { fg: T.text });
+      s.text(b.x + 2, b.y + 10, mb.status === 'offline' ? '○' : '●', { fg: status.color });
+      s.text(b.x + 4, b.y + 10, status.label, { fg: T.text });
     }
     if (roles.length) {
-      s.text(b.x + 2, b.y + 10, 'ROLES', { fg: T.chan, attr: A.BOLD });
+      s.text(b.x + 2, b.y + 12, 'ROLES', { fg: T.chan, attr: A.BOLD });
       let cx = b.x + 2;
       for (const r of roles) {
         if (cx + strWidth(r.name) + 4 > b.x + b.w - 2) break;
-        cx += s.text(cx, b.y + 11, ` ● ${r.name} `, { fg: r.color || T.text, bg: T.side }) + 1;
+        cx += s.text(cx, b.y + 13, ` ● ${r.name} `, { fg: r.color || T.text, bg: T.side }) + 1;
       }
     }
   }

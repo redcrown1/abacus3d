@@ -37,6 +37,7 @@ account tokens: automating a user account is against Discord's Terms of Service 
   mention highlighting and system messages
 - Discord markdown: bold, italic, underline, strikethrough, inline code, code blocks, quotes, lists, headings,
   spoilers (revealed when the message is selected), links, user / role / channel mentions
+- Real user avatars and server icons, in the chat, the server rail, the user panel and profile popups
 - Inline image previews for attachments and embeds, drawn with half-block characters, plus a full-size viewer
 - Voice channels: join, see who is talking, mute, deafen and disconnect from a "Voice Connected" panel
 - Member list grouped by hoisted role and presence, with profile popups
