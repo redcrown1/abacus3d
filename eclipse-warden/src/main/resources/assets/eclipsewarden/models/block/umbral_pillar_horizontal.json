@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/cube_column_horizontal",
+  "textures": {
+    "end": "eclipsewarden:block/umbral_pillar_top",
+    "side": "eclipsewarden:block/umbral_pillar"
+  }
+}
