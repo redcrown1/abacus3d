@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "active=false": {
+      "model": "eclipsewarden:block/eclipse_altar"
+    },
+    "active=true": {
+      "model": "eclipsewarden:block/eclipse_altar_active"
+    }
+  }
+}

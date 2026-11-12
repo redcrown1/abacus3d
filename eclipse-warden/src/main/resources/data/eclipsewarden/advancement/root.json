@@ -1,0 +1,30 @@
+{
+  "display": {
+    "icon": {
+      "id": "eclipsewarden:eclipse_altar"
+    },
+    "title": {
+      "translate": "advancements.eclipsewarden.root.title"
+    },
+    "description": {
+      "translate": "advancements.eclipsewarden.root.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false,
+    "background": "eclipsewarden:textures/block/umbral_bricks.png"
+  },
+  "criteria": {
+    "altar": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "eclipsewarden:eclipse_altar"
+          }
+        ]
+      }
+    }
+  }
+}
