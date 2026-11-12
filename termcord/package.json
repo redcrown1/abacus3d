@@ -1,0 +1,14 @@
+{
+  "name": "termcord",
+  "version": "0.1.0",
+  "description": "Discord in your terminal: the full four-pane interface, zero dependencies",
+  "type": "module",
+  "bin": { "termcord": "src/index.js" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.js",
+    "demo": "node src/index.js --demo",
+    "test": "node --test"
+  },
+  "license": "MIT"
+}
