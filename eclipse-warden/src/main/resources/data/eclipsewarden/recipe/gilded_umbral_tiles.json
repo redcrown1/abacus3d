@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    " T ",
+    "TGT",
+    " T "
+  ],
+  "key": {
+    "T": {
+      "item": "eclipsewarden:umbral_tiles"
+    },
+    "G": {
+      "item": "minecraft:gold_nugget"
+    }
+  },
+  "result": {
+    "id": "eclipsewarden:gilded_umbral_tiles",
+    "count": 4
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "display": {
+    "icon": {
+      "id": "eclipsewarden:eclipse_blade"
+    },
+    "title": {
+      "translate": "advancements.eclipsewarden.slayer.title"
+    },
+    "description": {
+      "translate": "advancements.eclipsewarden.slayer.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "killed": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": {
+        "entity": [
+          {
+            "condition": "minecraft:entity_properties",
+            "entity": "this",
+            "predicate": {
+              "type": "eclipsewarden:eclipse_warden"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "parent": "eclipsewarden:court"
+}
