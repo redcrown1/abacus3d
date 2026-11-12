@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [
+    "SS",
+    "SS"
+  ],
+  "key": {
+    "S": {
+      "item": "eclipsewarden:umbral_stone"
+    }
+  },
+  "result": {
+    "id": "eclipsewarden:umbral_bricks",
+    "count": 4
+  }
+}

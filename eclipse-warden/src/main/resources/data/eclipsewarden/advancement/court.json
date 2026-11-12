@@ -1,0 +1,26 @@
+{
+  "display": {
+    "icon": {
+      "id": "eclipsewarden:eclipse_sigil"
+    },
+    "title": {
+      "translate": "advancements.eclipsewarden.court.title"
+    },
+    "description": {
+      "translate": "advancements.eclipsewarden.court.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "entered": {
+      "trigger": "minecraft:changed_dimension",
+      "conditions": {
+        "to": "eclipsewarden:eclipsed_court"
+      }
+    }
+  },
+  "parent": "eclipsewarden:root"
+}

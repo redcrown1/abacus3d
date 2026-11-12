@@ -1,0 +1,13 @@
+{
+  "replace": false,
+  "values": [
+    "eclipsewarden:umbral_stone",
+    "eclipsewarden:umbral_bricks",
+    "eclipsewarden:umbral_tiles",
+    "eclipsewarden:gilded_umbral_tiles",
+    "eclipsewarden:chiseled_umbral_bricks",
+    "eclipsewarden:eclipse_lantern",
+    "eclipsewarden:umbral_pillar",
+    "eclipsewarden:eclipse_altar"
+  ]
+}
