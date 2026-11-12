@@ -127,7 +127,7 @@ server-side read markers.
 ```sh
 npm test                                   # node --test, no install needed
 node src/index.js --snapshot 120x36        # print one frame as plain text
-node src/index.js --demo --theme synthwave # try a theme without saving it
+node src/index.js --demo --theme synthwave # start with a specific theme
 ```
 
 `src/screen.js` is the cell buffer and ANSI writer, `src/view.js` draws the panes, `src/app.js` holds UI state and
