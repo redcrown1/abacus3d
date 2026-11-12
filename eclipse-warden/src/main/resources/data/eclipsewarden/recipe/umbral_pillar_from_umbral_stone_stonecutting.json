@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:stonecutting",
+  "ingredient": {
+    "item": "eclipsewarden:umbral_stone"
+  },
+  "result": {
+    "id": "eclipsewarden:umbral_pillar",
+    "count": 1
+  }
+}

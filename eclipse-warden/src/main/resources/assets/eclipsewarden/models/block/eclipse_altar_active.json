@@ -1,0 +1,6 @@
+{
+  "parent": "eclipsewarden:block/eclipse_altar",
+  "textures": {
+    "top": "eclipsewarden:block/eclipse_altar_top_active"
+  }
+}

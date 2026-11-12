@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "SCS",
+    "G G"
+  ],
+  "key": {
+    "S": {
+      "item": "eclipsewarden:umbral_shard"
+    },
+    "C": {
+      "item": "eclipsewarden:eclipse_core"
+    },
+    "G": {
+      "item": "minecraft:gold_ingot"
+    }
+  },
+  "result": {
+    "id": "eclipsewarden:warden_crown",
+    "count": 1
+  }
+}
