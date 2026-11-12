@@ -1,7 +1,7 @@
 import { segmenter, gWidth } from './width.js';
 
-const CSI_KEYS = { A: 'up', B: 'down', C: 'right', D: 'left', H: 'home', F: 'end', Z: 'tab', P: 'f1' };
-const TILDE = { 1: 'home', 3: 'delete', 4: 'end', 5: 'pageup', 6: 'pagedown', 7: 'home', 8: 'end', 11: 'f1' };
+const CSI_KEYS = { A: 'up', B: 'down', C: 'right', D: 'left', H: 'home', F: 'end', Z: 'tab', P: 'f1', Q: 'f2' };
+const TILDE = { 1: 'home', 3: 'delete', 4: 'end', 5: 'pageup', 6: 'pagedown', 7: 'home', 8: 'end', 11: 'f1', 12: 'f2' };
 
 // Turns a chunk of raw terminal input into key, text, paste and mouse events.
 export function parseInput(data) {
@@ -42,7 +42,7 @@ export function parseInput(data) {
       if (m[3] === 'Z') mods.shift = true;
       if (name) key(name, mods);
       i += m[0].length;
-    } else if ((m = /^\x1bO([A-DHFP])/.exec(rest))) {
+    } else if ((m = /^\x1bO([A-DHFPQ])/.exec(rest))) {
       key(CSI_KEYS[m[1]]);
       i += 3;
     } else if (rest[0] === '\x1b') {

@@ -1,4 +1,5 @@
 import { encodePng } from '../png.js';
+import { listMics } from '../voice.js';
 import { userColor } from '../theme.js';
 
 // Offline backend with invented servers and simulated activity, used when no token is configured.
@@ -92,7 +93,8 @@ function demoPicture(w = 240, h = 136) {
 }
 
 export class DemoBackend {
-  constructor(store, { simulate = true, name = 'you' } = {}) {
+  constructor(store, { simulate = true, name = 'you', mics = null } = {}) {
+    this.mics = mics; // fixed device list for tests, otherwise the real devices are listed
     this.store = store;
     this.simulate = simulate;
     this.name = name;
@@ -256,12 +258,16 @@ export class DemoBackend {
 
   async typing() {}
 
+  async listMics() {
+    return this.mics ?? listMics();
+  }
+
   async joinVoice(channelId) {
     const s = this.store;
     const ch = s.channels.get(channelId);
     if (!ch || ch.type !== 'voice' || s.voice?.channelId === channelId) return;
     await this.leaveVoice();
-    s.voice = { guildId: ch.guildId, channelId, state: 'connected', muted: true, deafened: false, audio: true };
+    s.voice = { guildId: ch.guildId, channelId, state: 'connected', muted: s.settings.values.joinMuted, deafened: false, audio: true };
     s.guilds.get(ch.guildId).voice.set('me', channelId);
     s.setStatus('Demo mode: voice is simulated, there is no audio', 6000);
     if (!this.simulate) return;

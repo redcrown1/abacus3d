@@ -62,10 +62,26 @@ npm install        # voice protocol, Opus and Discord's end-to-end encryption
 and [FFmpeg](https://ffmpeg.org/download.html) on your `PATH` (`ffplay` plays what others say, `ffmpeg` records
 your microphone). Without them you still join the channel and see who is in it, just without audio.
 
-You join muted. `Alt+M` toggles your microphone, `Alt+D` deafens, `Alt+X` disconnects. The default microphone is
-used on Linux (PulseAudio / PipeWire) and macOS; on Windows, or to pick another device, set `TERMCORD_MIC` to the
-device name (list them with `ffmpeg -list_devices true -f dshow -i dummy`). The bot needs the Connect and Speak
-permissions in that channel. There is no push-to-talk or noise suppression: while unmuted, the mic is always live.
+You join muted. `Alt+M` toggles your microphone, `Alt+D` deafens, `Alt+X` disconnects. Choose the microphone and
+the volumes in Settings (`F2`). The bot needs the Connect and Speak permissions in that channel. There is no
+push-to-talk or noise suppression: while unmuted, the mic is always live.
+
+## Settings
+
+Press `F2` or click the gear next to your name. Changes apply immediately and are saved to
+`~/.config/termcord/settings.json` (`%APPDATA%\termcord\settings.json` on Windows).
+
+| Setting | What it does |
+| --- | --- |
+| Microphone | Input device for voice. Devices are detected with `pactl` or FFmpeg on Linux and with FFmpeg on macOS and Windows. "System default" follows the OS (on Windows, the first device found). |
+| Microphone volume | 0 to 200 %, how loud you are for others |
+| Speaker volume | 0 to 200 %, how loud others are for you |
+| Join voice channels muted | On by default |
+| Inline image previews | Off shows pictures as file links |
+| Avatars and server icons | Off shows coloured initials |
+| Member list | Same as `Ctrl+U` |
+
+The speaker device itself is not selectable; sound plays through the system default output.
 
 ## Keys
 
@@ -83,6 +99,7 @@ permissions in that channel. There is no push-to-talk or noise suppression: whil
 | `PgUp` / `PgDn` | Scroll history |
 | `Esc` | Cancel reply or edit, close popups, jump to present |
 | `F1` | Shortcut help |
+| `F2` | Settings |
 | `Ctrl+C` / `Ctrl+Q` | Quit |
 
 Clicking servers, channels, messages and members works too, and the wheel scrolls the pane under the pointer.
@@ -101,4 +118,4 @@ node src/index.js --snapshot 120x36        # print one frame as plain text
 
 `src/screen.js` is the cell buffer and ANSI writer, `src/view.js` draws the panes, `src/app.js` holds UI state and
 input handling, and `src/backends/` contains the Discord gateway/REST client and the offline demo. `src/png.js` and
-`src/images.js` decode and scale pictures; `src/voice.js` wraps `@discordjs/voice` and the FFmpeg processes.
+`src/images.js` decode and scale pictures; `src/voice.js` wraps `@discordjs/voice` and the FFmpeg processes; `src/settings.js` loads and saves preferences.

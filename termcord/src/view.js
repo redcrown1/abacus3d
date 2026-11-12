@@ -3,7 +3,7 @@ import { A } from './screen.js';
 import { strWidth, truncate, center } from './width.js';
 import { parseBlocks, parseInline, wrapSpans } from './markdown.js';
 import { layoutInput } from './input.js';
-import { HELP } from './app.js';
+import { HELP, SETTINGS } from './app.js';
 
 const RAIL_W = 8;
 const ICON = { text: '#', announcement: '»', voice: '♪', forum: '≡', dm: '@', category: '⌄' };
@@ -11,7 +11,7 @@ const HINTS = {
   guilds: '↑↓ switch server · → channels',
   channels: '↑↓ move · Enter open · ← servers',
   messages: 'r reply · e edit · d delete · + react · v image · Esc back',
-  input: 'Ctrl+K jump · F1 help',
+  input: 'Ctrl+K jump · F2 settings · F1 help',
   members: '↑↓ move · Enter profile · Esc back',
 };
 const SYSTEM = { join: 'joined the server.', pin: 'pinned a message to this channel.', boost: 'just boosted the server!' };
@@ -87,7 +87,7 @@ function drawRail(app, s, H) {
     if (y + 2 < 0 || y >= H) return;
     const active = i === sel;
     const focused = active && app.focus === 'guilds';
-    const icon = it.icon && app.images.get(it.icon, 6, 3, T.rail);
+    const icon = it.icon && app.store.settings.values.avatars && app.images.get(it.icon, 6, 3, T.rail);
     if (icon) app.images.load(icon);
     if (icon?.cells) icon.cells.forEach((cells, r) => drawPixels(s, 1, y + r, cells, 6));
     else {
@@ -111,7 +111,7 @@ function drawRail(app, s, H) {
 
 // Draws a loaded avatar, or the coloured initial while it is unavailable.
 function drawAvatar(app, s, x, y, cols, rows, src, name, id, bg) {
-  const e = src && app.images.get(src, cols, rows, bg);
+  const e = src && app.store.settings.values.avatars && app.images.get(src, cols, rows, bg);
   if (e) app.images.load(e);
   if (e?.cells) return e.cells.forEach((cells, i) => drawPixels(s, x, y + i, cells, cols));
   const col = userColor(id);
@@ -197,6 +197,8 @@ function drawSidebar(app, s, x, w, H) {
   s.text(x + 6, H - 1, '●', { fg: T.green });
   s.text(x + 8, H - 1, 'Online', { fg: T.muted });
   if (w >= 24) s.text(x + w - 8, H - 1, 'F1 help', { fg: T.faint });
+  s.text(x + w - 3, H - 2, '⚙', { fg: T.muted });
+  app.hits.push({ x: x + w - 4, y: H - 2, w: 3, h: 1, type: 'settings' });
 }
 
 function drawHeader(app, s, x, w) {
@@ -311,6 +313,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
       }
     }
   }
+  const showImages = st.settings.values.images;
   const picture = (src) => {
     const e = app.images.get(src, Math.min(cw, 56), 14);
     for (let i = 0; i < e.rows; i++) {
@@ -323,7 +326,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
     }
   };
   for (const a of m.attachments) {
-    if (a.image) {
+    if (a.image && showImages) {
       picture(a.image);
       continue;
     }
@@ -348,7 +351,7 @@ function layoutMessage(app, ch, m, grouped, cw) {
     for (const line of (e.description ?? '').split('\n')) if (line.trim()) put(parseInline(line, ctx));
     for (const f of e.fields ?? []) put([{ text: `${f.name}: `, b: true }, ...parseInline(String(f.value).replace(/\n/g, ' '), ctx)]);
     if (e.footer) put([{ text: e.footer, muted: true }]);
-    if (e.image) picture(e.image);
+    if (e.image && showImages) picture(e.image);
   }
   if (m.reactions.length) {
     let parts = [];
@@ -501,7 +504,7 @@ function drawChat(app, s, x, y, w, h) {
         drawPixels(s, x + p.x, sy, p.px, w - p.x - 1);
         continue;
       }
-      if (p.av) {
+      if (p.av && st.settings.values.avatars) {
         const e = app.images.get(p.av, 4, 2);
         app.images.load(e);
         if (e.cells) {
@@ -627,6 +630,36 @@ function drawModal(app, s) {
     s.fill(b.x + 2, b.y + 5, b.w - 4, 1, T.rail);
     const qw = s.text(b.x + 3, b.y + 5, m.query || 'or type an emoji / :shortcode: and press Enter', { fg: m.query ? T.text : T.faint }, b.w - 6);
     app.cursor = { x: b.x + 3 + (m.query ? qw : 0), y: b.y + 5 };
+  } else if (m.type === 'settings') {
+    const values = st.settings.values;
+    const b = openBox(app, s, 74, SETTINGS.length + 8, 'Settings');
+    const vx = b.x + 32;
+    m.index = clamp(m.index, 0, SETTINGS.length - 1);
+    SETTINGS.forEach((item, i) => {
+      const yy = b.y + 3 + i;
+      const selected = i === m.index;
+      const v = values[item.key];
+      if (selected) s.fill(b.x + 1, yy, b.w - 2, 1, T.sel);
+      s.text(b.x + 3, yy, item.label, { fg: selected ? T.white : T.text }, 28);
+      app.hits.push({ x: b.x, y: yy, w: b.w, h: 1, type: 'setting', index: i });
+      if (item.type === 'toggle') {
+        s.text(vx, yy, v ? ' On ' : ' Off ', v ? { fg: T.white, bg: T.green, attr: A.BOLD } : { fg: T.text, bg: T.divider });
+      } else if (item.type === 'slider') {
+        const filled = Math.round(v / 10);
+        s.text(vx, yy, '━'.repeat(filled), { fg: T.blurple });
+        s.text(vx + filled, yy, '─'.repeat(20 - filled), { fg: T.divider });
+        s.text(vx + 22, yy, `${v}%`, { fg: T.text });
+        app.hits.push({ x: vx, y: yy, w: 21, h: 1, type: 'slider', index: i });
+      } else {
+        const label = m.mics ? app.micChoices(m).find((c) => c.id === v)?.label ?? v : 'Detecting…';
+        s.text(vx, yy, `‹ ${truncate(label, b.w - 38)} ›`, { fg: T.text });
+      }
+    });
+    const item = SETTINGS[m.index];
+    const noMics = item.key === 'mic' && m.mics && !m.mics.length;
+    const help = noMics ? 'No input devices were detected. Check that FFmpeg is installed.' : item.help;
+    s.text(b.x + 3, b.y + 4 + SETTINGS.length, truncate(help, b.w - 6), { fg: noMics ? T.yellow : T.muted });
+    s.text(b.x + 3, b.y + 6 + SETTINGS.length, '↑↓ select · ←→ change · Enter toggle · Esc close', { fg: T.faint }, b.w - 6);
   } else if (m.type === 'image') {
     const src = m.items[m.index];
     const e = app.images.get(src, s.w - 8, s.h - 6);

@@ -12,6 +12,7 @@ export const HELP = [
   ['Alt+↑ / Alt+↓', 'Previous / next channel'],
   ['Ctrl+Alt+↑ / ↓', 'Previous / next server'],
   ['Ctrl+U', 'Toggle the member list'],
+  ['F2', 'Settings: microphone, volumes, images, avatars'],
   ['Enter', 'Send message (Alt+Enter for a new line)'],
   ['↑ in empty composer', 'Select messages; then r reply, e edit, d delete, + react'],
   ['PgUp / PgDn', 'Scroll history (older messages load automatically)'],
@@ -22,6 +23,16 @@ export const HELP = [
   ['Mouse', 'Click servers, channels, messages, members; wheel scrolls'],
   ['Ctrl+L', 'Redraw the screen'],
   ['Ctrl+C / Ctrl+Q', 'Quit'],
+];
+
+export const SETTINGS = [
+  { key: 'mic', label: 'Microphone', type: 'choice', help: 'The input device used when you unmute in a voice channel.' },
+  { key: 'micVolume', label: 'Microphone volume', type: 'slider', help: 'How loud you are for other people.' },
+  { key: 'outVolume', label: 'Speaker volume', type: 'slider', help: 'How loud other people are for you.' },
+  { key: 'joinMuted', label: 'Join voice channels muted', type: 'toggle', help: 'When off, your microphone is live as soon as you join.' },
+  { key: 'images', label: 'Inline image previews', type: 'toggle', help: 'When off, pictures show as file links; v still opens them.' },
+  { key: 'avatars', label: 'Avatars and server icons', type: 'toggle', help: 'When off, coloured initials are shown instead.' },
+  { key: 'members', label: 'Member list', type: 'toggle', help: 'The panel on the right (also Ctrl+U).' },
 ];
 
 function acronym(name) {
@@ -49,7 +60,6 @@ export class App {
     this.ensureSel = false;
     this.scroll = 0; // rows scrolled up from the newest message
     this.newMarker = null;
-    this.showMembers = true;
     this.chanCursor = 0;
     this.sideScroll = 0;
     this.sideFollow = true;
@@ -72,6 +82,50 @@ export class App {
     });
     this.onQuit = () => {};
     this.onRedraw = () => {};
+  }
+
+  get showMembers() {
+    return this.store.settings.values.members;
+  }
+
+  // ----- settings -----
+
+  openSettings() {
+    const m = (this.modal = { type: 'settings', index: 0, mics: null });
+    Promise.resolve(this.backend.listMics()).catch(() => []).then((mics) => {
+      m.mics = mics;
+      this.store.changed();
+    });
+  }
+
+  micChoices(m) {
+    const current = this.store.settings.values.mic;
+    const list = [{ id: '', label: 'System default' }, ...(m.mics ?? [])];
+    if (!list.some((c) => c.id === current)) list.push({ id: current, label: current });
+    return list;
+  }
+
+  setSetting(key, value) {
+    const settings = this.store.settings;
+    if (settings.values[key] === value) return;
+    const saved = settings.set(key, value);
+    if (key === 'images') this.store.layoutRev++;
+    if (key === 'members' && !value && this.focus === 'members') this.setFocus('input');
+    this.backend.applySettings?.(key);
+    if (!saved) this.store.setStatus('⚠ Could not save settings', 4000);
+  }
+
+  // dir is -1 or 1 for the arrow keys and 0 for Enter or a click.
+  changeSetting(index, dir) {
+    const item = SETTINGS[index];
+    const value = this.store.settings.values[item.key];
+    if (item.type === 'toggle') this.setSetting(item.key, !value);
+    else if (item.type === 'slider') this.setSetting(item.key, clamp(value + dir * 10, 0, 200));
+    else if (this.modal?.mics) {
+      const choices = this.micChoices(this.modal);
+      const i = choices.findIndex((c) => c.id === value);
+      this.setSetting(item.key, choices[(i + (dir || 1) + choices.length) % choices.length].id);
+    }
   }
 
   // Keeps the selection valid as servers and channels arrive or disappear.
@@ -303,10 +357,9 @@ export class App {
 
   globalKey({ name, ctrl, alt, shift }) {
     if (ctrl && name === 'k') this.modal = { type: 'switcher', query: '', index: 0 };
-    else if (ctrl && name === 'u') {
-      this.showMembers = !this.showMembers;
-      if (this.focus === 'members') this.setFocus('input');
-    } else if (name === 'f1') this.modal = { type: 'help' };
+    else if (ctrl && name === 'u') this.setSetting('members', !this.showMembers);
+    else if (name === 'f1') this.modal = { type: 'help' };
+    else if (name === 'f2') this.openSettings();
     else if (ctrl && name === 'l') this.onRedraw();
     else if (alt && ctrl && (name === 'up' || name === 'down')) this.stepGuild(name === 'up' ? -1 : 1);
     else if (alt && (name === 'up' || name === 'down')) this.stepChannel(name === 'up' ? -1 : 1);
@@ -586,7 +639,15 @@ export class App {
     const name = ev.type === 'key' ? ev.name : null;
     if (name === 'escape') return void (this.modal = null);
     if (ev.type === 'key' && (ev.ctrl || ev.alt)) return;
-    if (m.type === 'image' && (name === 'left' || name === 'right')) {
+    if (m.type === 'settings') {
+      const k = name ?? ev.text;
+      if (k === 'up' || k === 'k') m.index = Math.max(0, m.index - 1);
+      else if (k === 'down' || k === 'j' || k === 'tab') m.index = Math.min(SETTINGS.length - 1, m.index + 1);
+      else if (k === 'left' || k === 'h') this.changeSetting(m.index, -1);
+      else if (k === 'right' || k === 'l') this.changeSetting(m.index, 1);
+      else if (k === 'enter' || k === ' ') this.changeSetting(m.index, 0);
+      else if (k === 'f2') this.modal = null;
+    } else if (m.type === 'image' && (name === 'left' || name === 'right')) {
       m.index = (m.index + (name === 'right' ? 1 : -1) + m.items.length) % m.items.length;
     } else if (m.type === 'help' || m.type === 'profile' || m.type === 'image') {
       this.modal = null;
@@ -628,6 +689,13 @@ export class App {
     }
     if (this.modal) {
       if (hit?.type === 'switch') this.jumpTo(hit.id);
+      else if (hit?.type === 'setting') {
+        this.modal.index = hit.index;
+        this.changeSetting(hit.index, 0);
+      } else if (hit?.type === 'slider') {
+        this.modal.index = hit.index;
+        this.setSetting(SETTINGS[hit.index].key, clamp((ev.x - hit.x) * 10, 0, 200));
+      }
       else if (hit?.type !== 'modal') this.modal = null;
       return;
     }
@@ -641,5 +709,6 @@ export class App {
     else if (hit.type === 'voiceMute') this.toggleVoice('muted');
     else if (hit.type === 'voiceDeaf') this.toggleVoice('deafened');
     else if (hit.type === 'voiceLeave') this.leaveVoice();
+    else if (hit.type === 'settings') this.openSettings();
   }
 }

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { Settings } from './settings.js';
 
 // Orders decimal id strings (Discord snowflakes) chronologically.
 export const cmpId = (a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
@@ -19,6 +20,7 @@ export class Store extends EventEmitter {
     this.layoutRev = 0; // bumped whenever cached message rows must be rebuilt
     this.voice = null; // {guildId, channelId, state, muted, deafened, audio}
     this.speaking = new Set();
+    this.settings = new Settings();
   }
 
   changed() {

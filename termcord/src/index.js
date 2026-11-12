@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { userInfo } from 'node:os';
 import { Store } from './store.js';
+import { Settings, settingsPath } from './settings.js';
 import { Screen } from './screen.js';
 import { App } from './app.js';
 import { render } from './view.js';
@@ -36,6 +37,7 @@ if (opts.help) {
 const token = opts.demo ? null : opts.token ?? process.env.DISCORD_TOKEN ?? process.env.DISCORD_BOT_TOKEN;
 const truecolor = /truecolor|24bit/i.test(process.env.COLORTERM ?? '');
 const store = new Store();
+if (!opts.snapshot) store.settings = new Settings(settingsPath());
 const backend = token
   ? new DiscordBackend(store, token)
   : new DemoBackend(store, { simulate: !opts.snapshot, name: userInfo().username || 'you' });

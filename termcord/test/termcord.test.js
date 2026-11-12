@@ -12,14 +12,19 @@ import { normMessage, normChannel, messageFields, avatarOf, normMember } from '.
 import { readFileSync } from 'node:fs';
 import { decodePng, encodePng } from '../src/png.js';
 import { fit, toCells, sizedUrl } from '../src/images.js';
-import { mixFrames, micInput, FRAME } from '../src/voice.js';
+import { mixFrames, micInput, micArgs, parsePulseJson, parseSources, parseAvfoundation, parseDshow, FRAME } from '../src/voice.js';
+import { Settings, settingsPath } from '../src/settings.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const key = (name, mods = {}) => ({ type: 'key', name, ctrl: false, alt: false, shift: false, ...mods });
 const type = (text) => ({ type: 'text', text });
 
 async function demo(w = 120, h = 36) {
   const store = new Store();
-  const backend = new DemoBackend(store, { simulate: false, name: 'tester' });
+  const mics = [{ id: 'alsa_input.usb-mic', label: 'USB Microphone' }, { id: 'alsa_input.pci', label: 'Built-in Audio' }];
+  const backend = new DemoBackend(store, { simulate: false, name: 'tester', mics });
   const app = new App(store, backend);
   await backend.connect();
   const screen = new Screen(w, h);
@@ -278,4 +283,115 @@ test('ui: avatars and server icons replace the initials once loaded', async () =
   assert.ok(out.includes('Ada Lovelace') && out.includes('Admin'));
   assert.equal(app.images.entries.get('demo:avatar:u1|10x5|' + 0x111214).state, 'ready');
   assert.equal(store.me.avatar.id, 'demo:avatar:me');
+});
+
+test('settings: saved, reloaded and sanitised', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'termcord-')), 'nested', 'settings.json');
+  const a = new Settings(path);
+  assert.equal(a.values.joinMuted, true);
+  assert.equal(a.set('mic', 'USB Mic'), true);
+  a.set('micVolume', 150);
+  a.set('outVolume', 999);
+  a.set('images', false);
+  const b = new Settings(path);
+  assert.deepEqual([b.values.mic, b.values.micVolume, b.values.outVolume, b.values.images, b.values.avatars], ['USB Mic', 150, 200, false, true]);
+
+  writeFileSync(path, JSON.stringify({ mic: 5, micVolume: 'loud', members: 'yes', unknown: 1 }));
+  const c = new Settings(path);
+  assert.deepEqual([c.values.mic, c.values.micVolume, c.values.members, 'unknown' in c.values], ['', 100, true, false]);
+  writeFileSync(path, 'not json');
+  assert.equal(new Settings(path).values.micVolume, 100);
+
+  assert.equal(settingsPath({ XDG_CONFIG_HOME: '/x' }, 'linux'), join('/x', 'termcord', 'settings.json'));
+  assert.equal(settingsPath({ APPDATA: 'C:\\Roaming' }, 'win32'), join('C:\\Roaming', 'termcord', 'settings.json'));
+  assert.equal(settingsPath({ TERMCORD_CONFIG: '/tmp/s.json' }, 'linux'), '/tmp/s.json');
+});
+
+test('voice: microphone discovery on each platform', () => {
+  const pulse = JSON.stringify([
+    { name: 'alsa_output.pci.analog-stereo.monitor', description: 'Monitor of Built-in Audio' },
+    { name: 'alsa_input.usb-Blue_Yeti', description: 'Blue Yeti' },
+  ]);
+  assert.deepEqual(parsePulseJson(pulse).map((m) => m.label), ['Blue Yeti', 'Monitor of Built-in Audio']);
+  assert.deepEqual(parsePulseJson('Connection failure: Connection refused'), []);
+
+  const sources = 'Auto-detected sources for pulse:\n  alsa_output.pci.monitor [Monitor of Built-in Audio Analog Stereo]\n* alsa_input.pci.analog-stereo [Built-in Audio Analog Stereo]\n';
+  assert.deepEqual(parseSources(sources)[0], { id: 'alsa_input.pci.analog-stereo', label: 'Built-in Audio Analog Stereo' });
+
+  const mac = [
+    '[AVFoundation indev @ 0x7f8] AVFoundation video devices:',
+    '[AVFoundation indev @ 0x7f8] [0] FaceTime HD Camera',
+    '[AVFoundation indev @ 0x7f8] AVFoundation audio devices:',
+    '[AVFoundation indev @ 0x7f8] [0] MacBook Pro Microphone',
+    '[AVFoundation indev @ 0x7f8] [1] External Microphone',
+    ': Input/output error',
+  ].join('\n');
+  assert.deepEqual(parseAvfoundation(mac).map((m) => m.id), ['MacBook Pro Microphone', 'External Microphone']);
+
+  const win = [
+    '[dshow @ 000001] "Integrated Webcam" (video)',
+    '[dshow @ 000001]   Alternative name "@device_pnp_\\\\?\\usb#vid"',
+    '[dshow @ 000001] "Microphone (Realtek(R) Audio)" (audio)',
+    '[dshow @ 000001]   Alternative name "@device_cm_{33D9A762}\\wave_{1}"',
+  ].join('\r\n');
+  assert.deepEqual(parseDshow(win), [{ id: 'Microphone (Realtek(R) Audio)', label: 'Microphone (Realtek(R) Audio)' }]);
+  const winOld = '[dshow @ 01] DirectShow video devices\n[dshow @ 01]  "Webcam"\n[dshow @ 01] DirectShow audio devices\n[dshow @ 01]  "Headset Mic"\n[dshow @ 01]     Alternative name "@device_cm"\n';
+  assert.deepEqual(parseDshow(winOld).map((m) => m.id), ['Headset Mic']);
+
+  const args = micArgs(micInput('linux', 'alsa_input.usb-mic'), 150);
+  assert.deepEqual(args.slice(2, 8), ['-f', 'pulse', '-i', 'alsa_input.usb-mic', '-af', 'volume=1.5']);
+  assert.ok(!micArgs(micInput('linux', ''), 100).includes('-af'));
+
+  const frame = Buffer.alloc(FRAME);
+  frame.writeInt16LE(1000, 0);
+  assert.equal(mixFrames([frame], 0.5).readInt16LE(0), 500);
+  assert.equal(mixFrames([frame], 0).readInt16LE(0), 0);
+});
+
+test('ui: settings screen changes and applies preferences', async () => {
+  const { store, app, press } = await demo();
+  assert.deepEqual(parseInput('\x1bOQ\x1b[12~').map((e) => e.name), ['f2', 'f2']);
+  const v = store.settings.values;
+
+  let out = await press(key('f2'));
+  assert.equal(app.modal.type, 'settings');
+  for (const text of ['Settings', 'Microphone', '‹ System default ›', 'Speaker volume', '100%', 'Join voice channels muted', ' On ']) {
+    assert.ok(out.includes(text), `missing ${text}\n${out}`);
+  }
+
+  out = await press(key('right'));
+  assert.equal(v.mic, 'alsa_input.usb-mic');
+  assert.ok(out.includes('‹ USB Microphone ›'));
+  await press(key('left'), key('left'));
+  assert.equal(v.mic, 'alsa_input.pci');
+
+  out = await press(key('down'), key('right'), key('right'), key('down'), key('left'));
+  assert.deepEqual([v.micVolume, v.outVolume], [120, 90]);
+  assert.ok(out.includes('120%') && out.includes('90%'));
+  const slider = app.hits.find((h) => h.type === 'slider' && h.index === 2);
+  await press({ type: 'mouse', button: 'left', x: slider.x + 5, y: slider.y });
+  assert.equal(v.outVolume, 50);
+
+  await press(key('down'), key('enter'), key('down'), key('enter'), key('down'), type(' '));
+  assert.deepEqual([v.joinMuted, v.images, v.avatars], [false, false, false]);
+  out = await press(key('escape'), key('down', { alt: true }));
+  assert.equal(app.modal, null);
+  assert.ok(out.includes('▣ dusk.png'), out);
+  assert.equal(out.split('\n').filter((l) => l.includes('▀'.repeat(40))).length, 0);
+  assert.match(out, /▌\s+TD/);
+
+  assert.ok(out.includes('ADMIN — 1'));
+  out = await press(key('u', { ctrl: true }));
+  assert.equal(v.members, false);
+  assert.ok(!out.includes('ADMIN — 1'));
+
+  app.chanCursor = app.sidebarItems().findIndex((i) => i.ch?.id === 'c9');
+  app.focus = 'channels';
+  out = await press(key('enter'));
+  assert.equal(store.voice.muted, false);
+  assert.ok(out.includes(' MIC '));
+
+  const gear = app.hits.find((h) => h.type === 'settings');
+  await press({ type: 'mouse', button: 'left', x: gear.x + 1, y: gear.y });
+  assert.equal(app.modal.type, 'settings');
 });

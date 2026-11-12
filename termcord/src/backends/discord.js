@@ -1,4 +1,4 @@
-import { loadVoice, VoiceSession } from '../voice.js';
+import { loadVoice, listMics, VoiceSession } from '../voice.js';
 
 // Live Discord backend: REST v10 plus the Gateway, authenticated as a bot application.
 const API = 'https://discord.com/api/v10';
@@ -392,11 +392,12 @@ export class DiscordBackend {
       return s.changed();
     }
     await this.leaveVoice();
-    const v = (s.voice = { guildId: ch.guildId, channelId, state: 'connecting', muted: true, deafened: false, audio: false, since: Date.now() });
+    const v = (s.voice = { guildId: ch.guildId, channelId, state: 'connecting', muted: s.settings.values.joinMuted, deafened: false, audio: false, since: Date.now() });
     s.changed();
     this.voiceLib ??= await loadVoice();
     if (s.voice !== v) return;
     if (!this.voiceLib) {
+      v.muted = true;
       this.voiceState(ch.guildId, channelId, v);
       v.state = 'presence';
       return s.setStatus('Joined without audio: run "npm install" in the termcord folder', 12000);
@@ -405,6 +406,8 @@ export class DiscordBackend {
     this.session = new VoiceSession(this.voiceLib, {
       guildId: ch.guildId,
       channelId,
+      muted: v.muted,
+      getAudio: () => s.settings.values,
       adapterCreator: (hooks) => {
         this.voiceHooks.set(ch.guildId, hooks);
         return {
@@ -455,6 +458,14 @@ export class DiscordBackend {
     if (this.session) this.session.setFlags(v.muted, v.deafened);
     else this.voiceState(v.guildId, v.channelId, v);
     s.changed();
+  }
+
+  listMics() {
+    return listMics();
+  }
+
+  applySettings(key) {
+    this.session?.audioChanged(key);
   }
 
   close() {
